@@ -96,7 +96,7 @@ def test_display_is_closed_for_a_brain_that_loads_and_forgets(session, kitchen):
             call("load_recipe", recipe_id="r1")
 
     session.handle({"utterance_id": "x", "text": "cook this"}, Forgetful())
-    assert tools(kitchen)[-2:] == ["load_recipe", "hide_recipe"] and session.state == COOKING
+    assert tools(kitchen)[-3:] == ["load_recipe", "hide_recipe", "show_step"] and session.state == COOKING
 
 
 def test_cooking_answer_needs_a_fresh_frame(session, kitchen):
@@ -168,3 +168,57 @@ def test_malformed_box_is_refused(session):
     session.call("capture_frame")
     assert "error" in session.call("highlight", box=[760, 100, 600, 260])
     assert "error" in session.call("highlight", box=[0, 0, 1200, 10])
+
+
+# ---- recipe steps --------------------------------------------------------------------------
+
+def steps_shown(kitchen):
+    return [e["args"]["number"] for e in kitchen.events if e["tool"] == "show_step"]
+
+
+class Recording:
+    """A brain that only remembers what it was given."""
+
+    def __init__(self):
+        self.utterances = []
+
+    def respond(self, utterance, call):
+        self.utterances.append(utterance)
+
+
+def test_first_step_is_shown_when_cooking_starts(session, kitchen):
+    to_cooking(session)
+    assert steps_shown(kitchen) == [1] and session.current_step()["total"] == 4
+
+
+def test_next_and_back_move_the_step_without_the_brain_or_the_wake_word(session, kitchen):
+    to_cooking(session)
+    brain = Recording()
+    for text in ["Next", "next step", "Back"]:
+        session.handle({"utterance_id": text, "text": text}, brain)
+    assert steps_shown(kitchen) == [1, 2, 3, 2] and brain.utterances == []
+
+
+def test_steps_stop_at_both_ends(session, kitchen):
+    to_cooking(session)
+    session.handle({"utterance_id": "b", "text": "back"}, Recording())
+    assert steps_shown(kitchen) == [1]                       # already on the first step
+    for _ in range(3):
+        session.handle({"utterance_id": "n", "text": "next"}, Recording())
+    session.handle({"utterance_id": "n", "text": "next"}, Recording())
+    assert steps_shown(kitchen) == [1, 2, 3, 4]
+    assert kitchen.events[-1]["tool"] == "say" and kitchen.events[-1]["args"]["text"] == "That's the last step."
+
+
+def test_next_means_nothing_before_cooking(session, kitchen):
+    brain = Recording()
+    session.handle({"utterance_id": "n", "text": "next"}, brain)
+    assert steps_shown(kitchen) == [] and len(brain.utterances) == 1   # the brain decides what it means
+
+
+def test_a_question_reaches_the_brain_with_the_step_on_screen(session):
+    to_cooking(session)
+    session.handle({"utterance_id": "n", "text": "next"}, Recording())
+    brain = Recording()
+    session.handle({"utterance_id": "q", "text": "Gemini, how much garlic?"}, brain)
+    assert brain.utterances[0]["step"] == session.current_step() and session.current_step()["number"] == 2

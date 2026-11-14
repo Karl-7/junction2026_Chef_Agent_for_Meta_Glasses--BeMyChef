@@ -6,7 +6,8 @@ The model (or a scripted policy) is the "brain": for each user utterance it is g
 and acts only through the tools below. Everything code can decide is decided here, not by the
 brain: state transitions, the wake word, candidate de-duplication, never re-showing a rejected
 recipe, loading the recipe before the display closes, a fresh frame before each cooking answer,
-the spoken acknowledgement before a slow search, and highlight timeouts.
+the spoken acknowledgement before a slow search, highlight timeouts, and which recipe step is on
+screen ("next" and "back" move it without the brain or the wake word).
 """
 from __future__ import annotations
 
@@ -14,11 +15,13 @@ import time
 from typing import Callable, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from . import steps
 from .device import Device, RecipeSource
 
 WAKE_WORD = "gemini"
 HIGHLIGHT_TTL_S = 5.0
 SEARCH_ACK = {"en": "Let me search.", "zh": "我搜一下。"}
+LAST_STEP = {"en": "That's the last step.", "zh": "这是最后一步了。"}
 
 IDLE, SEARCHING, AWAITING, COOKING = "idle", "searching", "awaiting_confirmation", "cooking"
 
@@ -51,6 +54,7 @@ class Session:
         self.state = IDLE
         self.language = "en"
         self.recipe: dict | None = None          # the confirmed recipe, with its page text
+        self.step: int | None = None             # index into the recipe's instructions, while cooking
         self._candidates: dict[str, dict] = {}   # recipe_id -> candidate, one per page
         self._seen_ids: set[str] = set()         # every id a search returned, duplicates included
         self._pages: set[str] = set()            # canonical urls of self._candidates
@@ -75,11 +79,17 @@ class Session:
 
     def handle(self, utterance: dict, brain: Brain) -> None:
         self.tick()
+        if self.state == COOKING and (move := steps.command(utterance["text"])):
+            self.language = language_of(utterance["text"])
+            self.move_step(move)
+            return
         if self.state == COOKING and WAKE_WORD not in utterance["text"].lower():
             return                               # F1: not addressed to the assistant
         self.language = language_of(utterance["text"])
         self._frame, self._spoke = None, False
         self._help_request = self.state == COOKING
+        if self.current_step() is not None:
+            utterance = {**utterance, "step": self.current_step()}   # what the user is looking at
         brain.respond(utterance, self.call)
         if self.recipe is not None and self._shown is not None:
             self.hide_recipe()                   # the brain loaded the recipe but left it on screen
@@ -94,6 +104,24 @@ class Session:
             return tool(**args)
         except TypeError as e:                   # wrong or missing arguments from the model
             return _error(str(e))
+
+    # ---- recipe steps ----------------------------------------------------------------------
+
+    def current_step(self) -> dict | None:
+        if self.step is None:
+            return None
+        return steps.view(self.recipe["instructions"], self.recipe.get("ingredients") or [], self.step)
+
+    def move_step(self, direction: str) -> None:
+        if self.step is None:
+            return
+        last = len(self.recipe["instructions"]) - 1
+        target = min(last, self.step + 1) if direction == steps.NEXT else max(0, self.step - 1)
+        if target != self.step:
+            self.step = target
+            self.device.show_step(self.current_step())
+        elif direction == steps.NEXT:
+            self.device.say(LAST_STEP[self.language])   # "back" on the first step needs no answer
 
     def tick(self) -> None:
         if self._highlight_expires is not None and self.clock() >= self._highlight_expires:
@@ -160,6 +188,9 @@ class Session:
         self.device.hide_recipe()
         self._shown = None
         self.state = COOKING
+        if self.recipe.get("instructions"):
+            self.step = 0
+            self.device.show_step(self.current_step())
         return {"ok": True}
 
     def highlight(self, box: list[float], label: str = "", ttl: float | None = None) -> dict:

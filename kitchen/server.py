@@ -85,6 +85,12 @@ def load_recipe(recipe_id: str) -> dict:
 
 
 @mcp.tool()
+def show_step(number: int) -> dict:
+    """Show recipe step `number` (1-based) on the display."""
+    return _call("show_step", number=number)
+
+
+@mcp.tool()
 def highlight(box: list[float], label: str = "", ttl: float = 5.0, frame_id: str = "") -> dict:
     """Show a frame snapshot with a box [ymin, xmin, ymax, xmax] (0..1000) drawn on it."""
     return _call("highlight", box=box, label=label, ttl=ttl, frame_id=frame_id)

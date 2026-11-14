@@ -34,6 +34,9 @@ class ReplayKitchen:
     def hide_recipe(self):
         self._call("hide_recipe")
 
+    def show_step(self, step):
+        self._call("show_step", number=step["number"])
+
     def show_highlight(self, frame_id, box, label, ttl):
         self._call("highlight", frame_id=frame_id, box=box, label=label, ttl=ttl)
 

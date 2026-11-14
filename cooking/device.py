@@ -28,10 +28,16 @@ class Device(Protocol):
 
     def clear_highlight(self) -> None: ...
 
+    def show_step(self, step: dict) -> None:
+        """Show the recipe step the user is on: {"number", "total", "text", "ingredients"}."""
+
 
 class RecipeSource(Protocol):
     def search(self, dish: str, exclude: list[str]) -> list[dict]:
-        """Candidates {"recipe_id", "title", "url", "ingredients", "steps"}, none of them in `exclude`."""
+        """Candidates {"recipe_id", "title", "url", "ingredients", "steps", "instructions"}, none in `exclude`.
+
+        `steps` is a short summary for the model; `instructions` is the method as published, one
+        string per step, which the display walks through while cooking."""
 
     def fetch(self, recipe_id: str) -> str:
         """Full page text of one candidate, in its original language."""

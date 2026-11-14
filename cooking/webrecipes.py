@@ -128,7 +128,8 @@ class WebRecipes:
             summary = " ".join(steps)
             cand = {"recipe_id": f"w{len(self._found) + 1}", "url": lead["url"], "title": title, "image": image,
                     "ingredients": ingredients,
-                    "steps": summary[:SUMMARY_CHARS] + ("…" if len(summary) > SUMMARY_CHARS else "")}
+                    "steps": summary[:SUMMARY_CHARS] + ("…" if len(summary) > SUMMARY_CHARS else ""),
+                    "instructions": steps}
             text = "\n".join([title, "", "Ingredients:", *ingredients, "", "Steps:",
                               *(f"{n}. {s}" for n, s in enumerate(steps, 1))])
             self._found[cand["recipe_id"]] = {**cand, "text": text[:MAX_RECIPE_CHARS]}

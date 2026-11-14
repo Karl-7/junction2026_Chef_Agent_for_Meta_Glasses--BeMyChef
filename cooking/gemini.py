@@ -47,6 +47,9 @@ While cooking
   [ymin, xmin, ymax, xmax] on a 0-1000 scale, and say only a few words such as "This one."
 - Be conservative about doneness: when unsure whether food is cooked, tell the user to cook it
   longer. If the view is unclear, say so plainly.
+- The screen shows one recipe step at a time; each message says which step is on screen. The user
+  moves between steps by saying "next" or "back", which the app handles without you. Answer
+  questions about the step on screen unless the user asks about another one.
 
 A tool result with an "error" tells you what to do instead. Call `say` in the same step as the
 action it comments on, so the user is not kept waiting."""
@@ -144,6 +147,8 @@ class GeminiBrain:
             parts.insert(0, {"inlineData": {"mimeType": "image/jpeg", "data": base64.b64encode(frame["jpeg"]).decode()}})
         else:
             parts.append({"text": "(The camera gave no image this time.)"})
+        if step := utterance.get("step"):
+            parts.append({"text": f"(On screen: step {step['number']} of {step['total']}: {step['text']})"})
         self._contents.append({"role": "user", "parts": parts})
         try:
             self._turn(call)

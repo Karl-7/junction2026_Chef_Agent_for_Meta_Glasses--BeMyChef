@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from typing import Callable
 
-CANDIDATE_FIELDS = ("recipe_id", "title", "url", "ingredients", "steps")
+CANDIDATE_FIELDS = ("recipe_id", "title", "url", "ingredients", "steps", "instructions")
 
 
 class Kitchen:
@@ -60,6 +60,9 @@ class Kitchen:
     def _load_recipe(self, recipe_id: str) -> dict:
         r = self._recipes.get(recipe_id)
         return {"recipe_id": recipe_id, "text": r["page_text"]} if r else {"error": f"unknown recipe_id {recipe_id!r}"}
+
+    def _show_step(self, number: int) -> dict:
+        return {"ok": True}
 
     def _highlight(self, box: list[float], label: str = "", ttl: float = 0.0, frame_id: str = "") -> dict:
         return {"ok": True}

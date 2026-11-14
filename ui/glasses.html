@@ -2,206 +2,378 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Cooking Assistant</title>
 <link rel="icon" type="image/png" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-/* Meta Ray-Ban Display: 600x600 additive screen. Black is transparent, so the page is black and
-   only what the wearer needs is lit. Input is arrow keys + Enter; every control is a focusable button. */
+/*
+ * Meta Ray-Ban Display: a 600x600 additive screen. Black emits no light, so black is see-through and
+ * every lit pixel floats in front of the kitchen. The rules follow from that:
+ *   - No panels, borders or fills. Hierarchy is brightness and size: `ink` for what is read, `dim` for the rest.
+ *   - One accent, only for the highlight box, because it has to stand out on a camera frame.
+ *   - Large type, read at a glance with busy hands. Nothing under 18px.
+ *   - Motion only on change: a new step or answer arrives with 8px of movement. Nothing loops.
+ * On a computer wider than the glasses, the same page becomes a preview: the display is composited over
+ * the webcam (mix-blend-mode: screen, which is how an additive display works) and the controls move to a
+ * panel beside it.
+ */
 :root {
-  --ink: #F3F6F8; --dim: #9AA7B2; --panel: #12171C; --edge: #2B343D;
-  --focus: #6FE3FF; --mark: #FFB020; --live: #58D68D; --busy: #FFB020; --down: #FF6B5E;
+  --ink: #ffffff; --dim: #8f8f8f; --faint: #3a3a3a; --accent: #5ce1e6;
+  --pad: 32px; --enter: 220ms cubic-bezier(0.2, 0, 0, 1);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-feature-settings: "cv01", "ss03";
+  -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
-body { color: var(--ink); font: 18px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-  display: grid; place-items: center; }
-#room { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; opacity: 0; }
-#room.shown { opacity: 1; }
-#app { width: 100%; height: 100%; max-width: 600px; max-height: 600px; padding: 20px;
-  display: flex; flex-direction: column; gap: 12px; }
-
-.status { display: flex; justify-content: space-between; align-items: center; font-size: 16px; color: var(--dim); }
-.status span { display: inline-flex; align-items: center; gap: 8px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
-[data-phase="listening"] .dot { background: var(--live); }
-[data-phase="working"] .dot { background: var(--busy); animation: pulse 0.9s ease-in-out infinite alternate; }
-[data-phase="offline"] .dot { background: var(--down); }
-@keyframes pulse { from { opacity: 0.35; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { [data-phase="working"] .dot { animation: none; } }
-
-.screen { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
-.recipe { background: var(--panel); border: 1px solid var(--edge); border-radius: 16px; overflow: hidden;
-  flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
-.recipe .photo { flex: 0 0 42%; min-height: 0; width: 100%; object-fit: cover; display: block; }
-.recipe .body { flex: 1 1 0; min-height: 0; padding: 10px 16px 12px; display: flex; flex-direction: column; gap: 6px; }
-.recipe .title { font-size: 22px; font-weight: 650; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.recipe .title small { font-size: 16px; font-weight: 400; color: var(--dim); margin-left: 8px; }
-.recipe ul { flex: 1 1 0; min-height: 0; overflow: hidden; margin: 0; padding: 0; list-style: none;
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; align-content: start; }
-.recipe li { font-size: 16px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.recipe li.more { color: var(--dim); }
-.snap { position: relative; margin: 0 auto; max-height: 100%; max-width: 100%; border-radius: 12px; overflow: hidden;
-  border: 1px solid var(--edge); background: var(--panel); }
-.snap img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.box { position: absolute; border: 4px solid var(--mark); border-radius: 6px; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55); }
-.box span { position: absolute; left: -4px; top: -4px; transform: translateY(-100%); background: var(--mark); color: #000;
-  font-size: 16px; font-weight: 600; padding: 1px 8px; border-radius: 4px 4px 0 0; white-space: nowrap; }
-.box.low span { top: auto; bottom: -4px; transform: translateY(100%); border-radius: 0 0 4px 4px; }
-
-.talk { min-height: 84px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
-.you { font-size: 16px; color: var(--dim); }
-.reply { font-size: 22px; font-weight: 550; line-height: 1.25; }
-
-.keys { display: flex; gap: 10px; }
-button, input { flex: 1 1 0; min-width: 0; min-height: 88px; padding: 10px 16px; border-radius: 16px; cursor: pointer;
-  background: var(--panel); color: var(--ink); border: 2px solid var(--edge); font: inherit; text-align: left;
-  outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; }
-button small { display: block; font-size: 16px; color: var(--dim); }
-input { flex-grow: 2; font-size: 20px; }
-input::placeholder { color: var(--dim); }
-button:focus, input:focus { border-color: var(--focus); box-shadow: 0 0 18px rgba(111, 227, 255, 0.4); }
-button:disabled { opacity: 0.45; }
+html, body { margin: 0; height: 100%; background: #000; color: var(--ink); overflow: hidden; }
+button, input { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
+.note { display: none; }
+
+/* ---- the display --------------------------------------------------------------------------- */
+#stage { position: fixed; inset: 0; margin: 0; }
+#room { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+#hud { position: absolute; inset: 0; padding: var(--pad) var(--pad) 96px; display: flex; flex-direction: column; }
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 28px;
+  font-size: 18px; color: var(--dim); }
+.meta { display: flex; align-items: center; gap: 14px; }
+.progress { display: flex; gap: 4px; }
+.progress i { width: 18px; height: 3px; border-radius: 2px; background: var(--faint); }
+.progress i.done { background: var(--dim); }
+.progress i.now { background: var(--ink); }
+
+#view { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.enter { animation: enter var(--enter) both; }
+@keyframes enter { from { opacity: 0; transform: translateY(8px); } }
+
+.idle h1 { margin: 0; font-size: 32px; font-weight: 500; letter-spacing: -0.02em; }
+.idle p { margin: 10px 0 0; font-size: 20px; line-height: 1.4; color: var(--dim); max-width: 26ch; }
+
+.step { justify-content: flex-start; padding-top: 28px; }
+.step .text { margin: 0; font-size: 36px; line-height: 1.18; font-weight: 500; letter-spacing: -0.02em;
+  overflow: hidden; max-height: 7.2em; text-wrap: balance; }
+.uses { margin: 24px 0 0; padding: 0; list-style: none; font-size: 20px; line-height: 1.5; color: var(--dim); }
+
+.recipe { justify-content: flex-start; padding-top: 12px; }
+.recipe .photo { display: block; width: 100%; height: 190px; object-fit: cover; border-radius: 12px; }
+.recipe h1 { margin: 18px 0 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.15;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recipe .about { display: flex; gap: 18px; margin-top: 6px; font-size: 18px; color: var(--dim); }
+.recipe ul { flex: 1 1 0; min-height: 0; overflow: hidden; margin: 14px 0 0; padding: 0; list-style: none;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 24px; align-content: start;
+  font-size: 19px; line-height: 1.55; }
+.recipe li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recipe li.more { color: var(--dim); }
+
+.snap { position: relative; align-self: center; max-width: 100%; max-height: 100%; border-radius: 12px; overflow: hidden; }
+.snap img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.box { position: absolute; border: 3px solid var(--accent); border-radius: 8px; }
+.box span { position: absolute; left: -3px; bottom: 100%; margin-bottom: 6px; padding: 2px 8px; border-radius: 6px;
+  background: var(--accent); color: #000; font-size: 18px; font-weight: 600; white-space: nowrap; }
+.box.low span { bottom: auto; top: 100%; margin: 6px 0 0; }
+
+#caption { min-height: 64px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; }
+.heard { font-size: 18px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply { font-size: 24px; line-height: 1.3; font-weight: 500; letter-spacing: -0.01em; }
+.hint { font-size: 18px; color: var(--dim); }
+
+/* ---- controls: one slim row inside the display; a panel beside it on a computer -------------- */
+#controls { position: fixed; left: var(--pad); right: var(--pad); bottom: 20px; display: flex; gap: 8px; }
+#controls .label, #controls .keys { display: none; }
+#lines { display: contents; list-style: none; }
+#lines li:not(.next) { display: none; }
+.say, .control { flex: 1 1 0; min-width: 0; height: 56px; padding: 0 16px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--dim); text-align: left; cursor: pointer; outline: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 19px;
+  transition: color 80ms, box-shadow 80ms; }
+.say b { font-weight: 400; color: var(--faint); margin-right: 10px; }
+.say:focus, .control:focus, #ask:focus { color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+.say:disabled { opacity: 0.4; cursor: default; }
+#ask { flex: 2 1 0; min-width: 0; height: 56px; padding: 0 16px; border: 0; border-radius: 10px; background: transparent;
+  outline: none; font-size: 19px; color: var(--ink); box-shadow: inset 0 -1px 0 var(--faint); }
+#ask::placeholder { color: var(--dim); }
+
+/* ---- preview on a computer ----------------------------------------------------------------- */
+@media (min-width: 960px) and (min-height: 680px) {
+  body { background: #0b0b0c; display: grid; place-items: center; }
+  #layout { display: grid; grid-template-columns: 600px 300px; grid-template-rows: auto auto; column-gap: 56px;
+    align-items: center; }
+  #controls { grid-column: 2; grid-row: 1; }
+  .note { grid-column: 1; grid-row: 2; }
+  #stage { position: relative; inset: auto; width: 600px; height: 600px; border-radius: 28px; overflow: hidden;
+    isolation: isolate; background: #000; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 40px 120px -40px rgb(0 0 0 / 0.9); }
+  .note { display: block; margin: 16px 0 0; text-align: center; font-size: 13px; color: #5a5a5a; }
+  #room { opacity: 1; filter: brightness(0.5) saturate(0.85); }   /* the lenses are tinted */
+  #hud { mix-blend-mode: screen; padding-bottom: var(--pad); }
+  #room, #hud { border-radius: inherit; }   /* blended layers ignore the parent's clip in Chrome */
+
+  #controls { position: static; flex-direction: column; gap: 4px; }
+  #controls .label { display: block; margin: 0 0 10px 12px; font-size: 14px; color: var(--dim); }
+  #controls .keys { display: block; margin: 18px 0 0 12px; font-size: 13px; color: #5a5a5a; }
+  #lines { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; }
+  #lines li, #lines li:not(.next) { display: block; }
+  #lines li span { display: block; padding: 10px 12px; font-size: 15px; line-height: 1.35; color: #767676; }
+  #lines li.done span { color: #4d4d4d; text-decoration: line-through; text-decoration-color: #3a3a3a; }
+  .say, .control { flex: none; width: 100%; height: auto; min-height: 44px; padding: 10px 12px; font-size: 15px;
+    line-height: 1.35; white-space: normal; border-radius: 8px; color: var(--ink); }
+  .say b { display: none; }
+  .control { color: var(--dim); }
+  .say:hover, .control:hover { background: rgb(255 255 255 / 0.05); }
+  #free { display: flex; flex-direction: column; gap: 6px; }
+  #ask { flex: none; width: 100%; height: 44px; font-size: 15px; border-radius: 8px;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12); }
+  .control { flex: none; }
+}
+
+@media (prefers-reduced-motion: reduce) { .enter { animation: none; } }
 </style>
 </head>
 <body>
-<video id="room" autoplay muted playsinline></video>
-<main id="app" data-phase="offline">
-  <div class="status">
-    <span><i class="dot"></i><b id="phase">Connecting</b></span>
-    <span id="cam">Camera off</span>
-  </div>
-  <div class="screen" id="screen"></div>
-  <div class="talk">
-    <div class="you" id="you"></div>
-    <div class="reply" id="reply"></div>
-  </div>
-  <div class="keys">
-    <button type="button" id="speak" disabled><small>Say</small><span id="line"></span></button>
-    <input type="text" id="ask" placeholder="Type or dictate" autocomplete="off" aria-label="Say something to the assistant" hidden>
-    <button type="button" id="mic" hidden><small>Microphone</small><span id="micstate">Off</span></button>
-    <button type="button" id="again" hidden><small>Session</small>Start over</button>
-  </div>
-</main>
+<div id="layout">
+  <figure id="stage">
+    <video id="room" autoplay muted playsinline></video>
+    <main id="hud">
+      <div class="top"><div class="meta" id="meta"></div><span id="status">Connecting</span></div>
+      <div id="view"></div>
+      <div id="caption"></div>
+    </main>
+  </figure>
+  <p class="note">Glasses preview. On the display, black is see-through.</p>
+
+  <section id="controls" aria-label="Controls">
+    <p class="label">You say</p>
+    <ol id="lines"></ol>
+    <div id="free" hidden>
+      <input type="text" id="ask" placeholder="Type or dictate" autocomplete="off" aria-label="Say something to the assistant">
+      <button type="button" class="control" id="mic">Microphone off</button>
+    </div>
+    <button type="button" class="control" id="again" hidden>Start over</button>
+    <p class="keys">Arrow keys move, Enter speaks</p>
+  </section>
+</div>
 
 <script>
+// ---- state -----------------------------------------------------------------------------------
+// Everything the server says lands in `state`; `render` draws the display from it.
+
+const REPLY_HOLD_MS = 8000;   // how long a spoken answer stays on screen
+const KEEP_FRAMES = 4;        // snapshots kept for highlights
+
+const state = {
+  phase: 'connecting',        // connecting | listening | thinking | offline
+  script: null,               // scripted user lines, or null when the user speaks freely
+  nextLine: 0,
+  recipe: null,               // candidate on screen, waiting for yes or no
+  step: null,                 // {number, total, text, ingredients} while cooking
+  highlight: null,            // {frame_id, box, label}
+  heard: '', reply: '',
+  mic: false, speaking: false,
+};
+const frames = new Map();     // frame_id -> {url, ratio}
+let replyTimer = null, highlightTimer = null, shownView = '';
+
 const $ = id => document.getElementById(id);
-const app = $('app'), screenEl = $('screen'), video = $('room');
-const PHASE = { listening: 'Listening', working: 'Working', offline: 'Disconnected' };
-const KEEP_FRAMES = 4;          // snapshots kept for highlights
-const REPLY_HOLD_MS = 8000;     // how long a spoken line stays on screen
+const video = $('room');
 
-let ws, lines = [], next = 0, free = false, waiting = false, micOn = false, speaking = false, recipe = null, highlight = null, clearTimer = null, replyTimer = null;
-const frames = new Map();       // frame_id -> { url, ratio }
-
-function el(tag, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text != null) node.textContent = text;
+function h(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter(c => c != null && c !== false));
   return node;
 }
 
-function setPhase(phase) {
-  app.dataset.phase = phase;
-  $('phase').textContent = PHASE[phase];
-  renderKeys();
+// ---- render ----------------------------------------------------------------------------------
+
+function render() {
+  renderTop();
+  renderView();
+  renderCaption();
+  renderControls();
   syncMic();
 }
 
-function renderKeys() {
-  const done = !free && next >= lines.length, offline = app.dataset.phase === 'offline';
-  $('speak').hidden = free || done || offline;
-  $('ask').hidden = !free || offline;
-  $('mic').hidden = !free || offline || !recognition;
-  $('again').hidden = !(done || offline);
-  $('speak').disabled = app.dataset.phase !== 'listening';
-  $('micstate').textContent = micOn ? 'On' : 'Off';
-  if (!free && !done) $('line').textContent = '“' + lines[next].text + '”';
-  const controls = focusable();
-  if (controls.length && !controls.includes(document.activeElement)) controls[0].focus();
+function renderTop() {
+  $('status').textContent = { connecting: 'Connecting', listening: 'Listening', thinking: 'Thinking',
+                              offline: 'Disconnected' }[state.phase];
+  const { step } = state;
+  if (!step || state.recipe || state.highlight) return $('meta').replaceChildren();
+  const bar = h('div', { className: 'progress' }, ...Array.from({ length: step.total }, (_, i) =>
+    h('i', { className: i + 1 < step.number ? 'done' : i + 1 === step.number ? 'now' : '' })));
+  $('meta').replaceChildren(h('span', { textContent: `Step ${step.number} of ${step.total}` }), bar);
 }
 
-function focusable() {
-  return [...document.querySelectorAll('.keys button, .keys input')].filter(c => !c.hidden && !c.disabled);
+// A view is rebuilt, and animates in, only when what it shows changes.
+function renderView() {
+  const { highlight, recipe, step } = state;
+  const key = highlight ? `hl:${highlight.frame_id}:${highlight.box}` : recipe ? `recipe:${recipe.url}:${recipe.image}`
+            : step ? `step:${step.number}:${step.text}` : 'idle';
+  if (key === shownView) return;
+  shownView = key;
+  const view = highlight ? highlightView(highlight) : recipe ? recipeView(recipe) : step ? stepView(step) : idleView();
+  $('view').className = view.className + ' enter';
+  $('view').replaceChildren(...view.children.filter(Boolean));
+  view.after?.();
 }
 
-function send(text, utterance_id) {
-  if (app.dataset.phase !== 'listening') return;
-  $('you').textContent = 'You: ' + text;
-  $('reply').textContent = '';
-  waiting = true;
-  ws.send(JSON.stringify({ type: 'utterance', utterance_id: utterance_id || null, text }));
-  setPhase('working');
+function idleView() {
+  return { className: 'idle', children: [
+    h('h1', { textContent: 'What are we cooking?' }),
+    h('p', { textContent: 'Look at your ingredients and say “let’s cook this”.' }),
+  ] };
 }
 
-// What is on the display: a highlight covers the recipe; with neither, the screen stays dark.
-function renderScreen() {
-  screenEl.replaceChildren();
-  if (highlight) {
-    const frame = frames.get(highlight.frame_id) || { url: null, ratio: 4 / 3 };
-    const snap = el('div', 'snap');
-    snap.style.aspectRatio = frame.ratio;
-    snap.style.width = `min(100%, ${screenEl.clientHeight * frame.ratio}px)`;
-    if (frame.url) { const img = el('img'); img.src = frame.url; img.alt = 'Snapshot of your view'; snap.append(img); }
-    const [ymin, xmin, ymax, xmax] = highlight.box;       // 0..1000 of the frame
-    const box = el('div', 'box' + (ymin < 120 ? ' low' : ''));
-    box.style.cssText = `top:${ymin / 10}%;left:${xmin / 10}%;height:${(ymax - ymin) / 10}%;width:${(xmax - xmin) / 10}%`;
-    if (highlight.label) box.append(el('span', '', highlight.label));
-    snap.append(box);
-    screenEl.append(snap);
-  } else if (recipe) {
-    // A picture of the dish and what goes in it. The method is spoken step by step, not shown.
-    const card = el('div', 'recipe');
-    if (recipe.image) {
-      const photo = el('img', 'photo');
-      photo.alt = '';
-      photo.referrerPolicy = 'no-referrer';
-      photo.onerror = () => { photo.remove(); fitIngredients(list, recipe.ingredients); };
-      photo.src = recipe.image;
-      card.append(photo);
-    }
-    const body = el('div', 'body'), title = el('div', 'title', recipe.title), list = el('ul');
-    let site = '';
-    try { site = new URL(recipe.url).hostname.replace(/^www\./, ''); } catch (e) { /* no site shown */ }
-    title.append(el('small', '', site));
-    body.append(title, list);
-    card.append(body);
-    screenEl.append(card);
-    fitIngredients(list, recipe.ingredients);
-  }
+function stepView(step) {
+  const text = h('p', { className: 'text', textContent: step.text });
+  const uses = step.ingredients.length ? h('ul', { className: 'uses' },
+    ...step.ingredients.map(i => h('li', { textContent: i }))) : null;
+  return { className: 'step', children: [text, uses], after: () => fitText(text, 36, 26) };
+}
+
+function recipeView(recipe) {
+  const list = h('ul');
+  let site = '';
+  try { site = new URL(recipe.url).hostname.replace(/^www\./, ''); } catch { /* no site shown */ }
+  const steps = recipe.instructions?.length;
+  const photo = recipe.image ? h('img', { className: 'photo', alt: '', referrerPolicy: 'no-referrer', src: recipe.image,
+                                          onerror() { this.remove(); fitList(list, recipe.ingredients); } }) : null;
+  return { className: 'recipe', children: [
+    photo,
+    h('h1', { textContent: recipe.title }),
+    h('div', { className: 'about' }, site && h('span', { textContent: site }),
+      steps && h('span', { textContent: `${steps} steps` })),
+    list,
+  ], after: () => fitList(list, recipe.ingredients) };
+}
+
+function highlightView(hl) {
+  const frame = frames.get(hl.frame_id) || { url: null, ratio: 4 / 3 };
+  const snap = h('div', { className: 'snap' });
+  snap.style.aspectRatio = frame.ratio;
+  if (frame.url) snap.append(h('img', { src: frame.url, alt: 'Snapshot of your view' }));
+  const [ymin, xmin, ymax, xmax] = hl.box;            // 0..1000 of the frame
+  const box = h('div', { className: 'box' + (ymin < 120 ? ' low' : '') }, hl.label && h('span', { textContent: hl.label }));
+  box.style.cssText = `top:${ymin / 10}%;left:${xmin / 10}%;height:${(ymax - ymin) / 10}%;width:${(xmax - xmin) / 10}%`;
+  snap.append(box);
+  return { className: 'highlight', children: [snap], after: () => {
+    const room = $('view');
+    snap.style.width = `${Math.min(room.clientWidth, room.clientHeight * frame.ratio)}px`;
+  } };
+}
+
+function renderCaption() {
+  const { heard, reply, recipe, step, phase } = state;
+  let lines;
+  if (reply) lines = [heard && h('div', { className: 'heard', textContent: `“${heard}”` }),
+                      h('div', { className: 'reply enter', textContent: reply })];
+  else if (phase === 'thinking' && heard) lines = [h('div', { className: 'heard', textContent: `“${heard}”` })];
+  else if (recipe) lines = [h('div', { className: 'hint', textContent: 'Say “yes” or “no”' })];
+  else if (step) lines = [h('div', { className: 'hint', textContent: 'Say “next”, or ask a question' })];
+  else lines = [];
+  $('caption').replaceChildren(...lines.filter(Boolean));
+}
+
+// Shrink long text step by step until it fits its box.
+function fitText(node, max, min) {
+  let size = max;
+  node.style.fontSize = `${size}px`;
+  while (node.scrollHeight > node.clientHeight + 1 && size > min) node.style.fontSize = `${size -= 2}px`;
 }
 
 // Show as many ingredients as fit; the last cell says how many are left out.
-function fitIngredients(list, ingredients) {
-  list.replaceChildren(...ingredients.map(text => el('li', '', text)));
-  let shown = ingredients.length;
+function fitList(list, items) {
+  const rows = n => items.slice(0, n).map(t => h('li', { textContent: t }));
+  let shown = items.length;
+  list.replaceChildren(...rows(shown));
   while (shown > 0 && list.scrollHeight > list.clientHeight) {
     shown--;
-    list.replaceChildren(...ingredients.slice(0, shown).map(text => el('li', '', text)),
-                         el('li', 'more', `+${ingredients.length - shown} more`));
+    list.replaceChildren(...rows(shown), h('li', { className: 'more', textContent: `+${items.length - shown} more` }));
   }
 }
 
-function say(text) {
-  waiting = false;
-  $('reply').textContent = text;
+function renderControls() {
+  const offline = state.phase === 'offline', free = !state.script;
+  const done = !free && state.nextLine >= state.script.length;
+  $('lines').hidden = free;
+  if (!free) $('lines').replaceChildren(...state.script.map((line, i) => {
+    if (i !== state.nextLine) return h('li', { className: i < state.nextLine ? 'done' : '' }, h('span', { textContent: line.text }));
+    const say = h('button', { type: 'button', className: 'say', disabled: state.phase !== 'listening' || offline,
+                              onclick: () => speakLine(i) }, h('b', { textContent: 'Say' }), `“${line.text}”`);
+    return h('li', { className: 'next' }, say);
+  }));
+  $('free').hidden = !free || offline;
+  $('mic').hidden = !recognition;
+  $('mic').textContent = state.mic ? 'Microphone on' : 'Microphone off';
+  $('again').hidden = !(done || offline);
+  const controls = focusable();
+  if (controls.length && !controls.includes(document.activeElement)) controls[0].focus({ preventScroll: true });
+}
+
+function focusable() {
+  return [...$('controls').querySelectorAll('button, input')].filter(c => c.offsetParent && !c.disabled);
+}
+
+// ---- talking to the server -------------------------------------------------------------------
+
+let ws;
+
+function send(text, utterance_id = null) {
+  if (state.phase !== 'listening') return;
+  ws.send(JSON.stringify({ type: 'utterance', utterance_id, text }));
+  Object.assign(state, { phase: 'thinking', heard: text, reply: '' });
+  render();
+}
+
+function speakLine(i) {
+  const line = state.script[i];
+  if (state.phase !== 'listening') return;
+  state.nextLine = i + 1;
+  send(line.text, line.utterance_id);
+}
+
+const handlers = {
+  hello(m) { state.script = m.script; state.nextLine = 0; },
+  listening() { state.phase = 'listening'; },
+  capture(m) { capture(m.frame_id); },
+  say(m) { speak(m.text); },
+  recipe(m) { state.recipe = m.recipe; },
+  hide_recipe() { state.recipe = null; },
+  step(m) { state.step = { number: m.number, total: m.total, text: m.text, ingredients: m.ingredients || [] }; },
+  highlight(m) {
+    state.highlight = m;
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(() => { state.highlight = null; render(); }, m.ttl * 1000);
+  },
+  clear_highlight() { clearTimeout(highlightTimer); state.highlight = null; },
+};
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onmessage = e => { const m = JSON.parse(e.data); handlers[m.type]?.(m); render(); };
+  ws.onclose = () => { state.phase = 'offline'; render(); };
+}
+
+// ---- the device: speech out, camera, microphone, keys ----------------------------------------
+
+function speak(text) {
+  state.reply = text;
   clearTimeout(replyTimer);
-  replyTimer = setTimeout(() => { $('reply').textContent = ''; }, REPLY_HOLD_MS);
+  replyTimer = setTimeout(() => { state.reply = ''; state.heard = ''; render(); }, REPLY_HOLD_MS);
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = /[一-鿿]/.test(text) ? 'zh-CN' : 'en-US';
   // The microphone stays closed while the assistant talks, so it does not hear itself.
-  u.onend = u.onerror = () => { speaking = speechSynthesis.speaking || speechSynthesis.pending; syncMic(); };
-  speaking = true; syncMic();
+  u.onend = u.onerror = () => { state.speaking = speechSynthesis.speaking || speechSynthesis.pending; syncMic(); };
+  state.speaking = true;
   speechSynthesis.speak(u);
 }
 
 function capture(frame_id) {
   let jpeg = null;
   if (video.videoWidth) {
-    const c = document.createElement('canvas');
-    c.width = 640; c.height = Math.round(640 * video.videoHeight / video.videoWidth);
+    const c = h('canvas', { width: 640, height: Math.round(640 * video.videoHeight / video.videoWidth) });
     c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
     const url = c.toDataURL('image/jpeg', 0.7);
     frames.set(frame_id, { url, ratio: c.width / c.height });
@@ -211,55 +383,19 @@ function capture(frame_id) {
   ws.send(JSON.stringify({ type: 'frame', frame_id, jpeg }));
 }
 
-const handlers = {
-  hello(m) { free = !m.script; lines = m.script || []; next = 0; renderKeys(); },
-  listening() {
-    if (free && waiting) $('reply').textContent = 'No answer. While cooking, start with “Gemini”.';
-    waiting = false;
-    setPhase('listening');
-  },
-  capture(m) { capture(m.frame_id); },
-  say(m) { say(m.text); },
-  recipe(m) { recipe = m.recipe; renderScreen(); },
-  hide_recipe() { recipe = null; renderScreen(); },
-  highlight(m) {
-    highlight = m; renderScreen();
-    clearTimeout(clearTimer);
-    clearTimer = setTimeout(handlers.clear_highlight, m.ttl * 1000);
-  },
-  clear_highlight() { clearTimeout(clearTimer); highlight = null; renderScreen(); },
-};
-
-function connect() {
-  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-  ws.onmessage = e => { const m = JSON.parse(e.data); if (handlers[m.type]) handlers[m.type](m); };
-  ws.onclose = () => setPhase('offline');
+// The glasses camera is not available to web apps; on a computer the webcam stands in for it.
+async function startCamera() {
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
+  } catch { /* no camera: frames go out empty and the preview stays dark */ }
 }
 
-$('speak').addEventListener('click', () => {
-  if (next >= lines.length) return;
-  const line = lines[next];
-  if (app.dataset.phase === 'listening') next++;
-  send(line.text, line.utterance_id);
-});
-
-// Typed text, or on the glasses the system composer (handwriting or dictation), arrives as `change`.
-function submitAsk() {
-  const text = $('ask').value.trim();
-  if (!text || app.dataset.phase !== 'listening') return;    // keep the text until the assistant is free
-  $('ask').value = '';
-  send(text);
-}
-$('ask').addEventListener('change', submitAsk);
-
-// Open microphone, as on the real product: everything heard is sent, and the assistant decides
-// whether it was addressed. Web apps on the glasses have no microphone; this is the computer's.
+// Open microphone, as on the real product: everything heard is sent, and the assistant decides whether
+// it was addressed. Web apps on the glasses have no microphone; this is the computer's.
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
-if (Recognition) {
-  recognition = new Recognition();
+const recognition = Recognition ? new Recognition() : null;
+if (recognition) {
   recognition.continuous = true;
-  recognition.interimResults = false;
   recognition.lang = new URLSearchParams(location.search).get('lang') || navigator.language;
   recognition.onresult = e => {
     for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -268,47 +404,40 @@ if (Recognition) {
     }
   };
   recognition.onend = () => { if (micWanted()) startMic(); };
-  recognition.onerror = e => {
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { micOn = false; renderKeys(); }
-  };
+  recognition.onerror = e => { if (e.error.includes('not-allowed')) { state.mic = false; render(); } };
 }
-function micWanted() { return micOn && !speaking && app.dataset.phase === 'listening'; }
-function startMic() { try { recognition.start(); } catch (e) { /* already running */ } }
-function syncMic() {
-  if (!recognition) return;
-  if (micWanted()) startMic(); else recognition.stop();
+function micWanted() { return state.mic && !state.speaking && state.phase === 'listening'; }
+function startMic() { try { recognition.start(); } catch { /* already running */ } }
+function syncMic() { if (recognition) micWanted() ? startMic() : recognition.stop(); }
+
+function submitAsk() {
+  const text = $('ask').value.trim();
+  if (!text || state.phase !== 'listening') return;      // keep the text until the assistant is free
+  $('ask').value = '';
+  send(text);
 }
-$('mic').addEventListener('click', () => { micOn = !micOn; renderKeys(); syncMic(); });
+// Typed text, or on the glasses the system composer (handwriting or dictation), arrives as `change`.
+$('ask').addEventListener('change', submitAsk);
+$('mic').addEventListener('click', () => { state.mic = !state.mic; render(); });
 $('again').addEventListener('click', () => location.reload());
 
-// D-pad and band input arrive as arrow keys and Enter. Enter activates the focused control once.
+// D-pad and band input arrive as arrow keys and Enter.
 document.addEventListener('keydown', e => {
   const controls = focusable(), active = document.activeElement, typing = active === $('ask');
   if (e.key === 'Enter') {
     e.preventDefault();
     if (typing) submitAsk();
     else if (controls.includes(active)) active.click();
-    else if (controls.length) controls[0].focus();
+    else controls[0]?.focus();
   } else if (e.key.startsWith('Arrow') && controls.length) {
     if (typing && $('ask').value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;   // moves the caret
     e.preventDefault();
-    const step = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
     controls[(controls.indexOf(active) + step + controls.length) % controls.length].focus();
   }
 });
 
-// The glasses camera is not available to web apps; on a computer the webcam stands in for it.
-// ?camera=show also paints it behind the display, for use without the simulator's own background.
-async function startCamera() {
-  try {
-    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
-    $('cam').textContent = 'Camera on';
-    if (new URLSearchParams(location.search).get('camera') === 'show') video.classList.add('shown');
-  } catch (e) {
-    $('cam').textContent = 'No camera';
-  }
-}
-
+render();
 startCamera();
 connect();
 </script>
