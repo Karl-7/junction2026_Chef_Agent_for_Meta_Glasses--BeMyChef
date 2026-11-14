@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+<title>Cooking Assistant</title>
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+/* Meta Ray-Ban Display: 600x600 additive screen. Black is transparent, so the page is black and
+   only what the wearer needs is lit. Input is arrow keys + Enter; every control is a focusable button. */
+:root {
+  --ink: #F3F6F8; --dim: #9AA7B2; --panel: #12171C; --edge: #2B343D;
+  --focus: #6FE3FF; --mark: #FFB020; --live: #58D68D; --busy: #FFB020; --down: #FF6B5E;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+body { color: var(--ink); font: 18px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  display: grid; place-items: center; }
+#room { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; opacity: 0; }
+#room.shown { opacity: 1; }
+#app { width: 100%; height: 100%; max-width: 600px; max-height: 600px; padding: 20px;
+  display: flex; flex-direction: column; gap: 12px; }
+
+.status { display: flex; justify-content: space-between; align-items: center; font-size: 16px; color: var(--dim); }
+.status span { display: inline-flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+[data-phase="listening"] .dot { background: var(--live); }
+[data-phase="working"] .dot { background: var(--busy); animation: pulse 0.9s ease-in-out infinite alternate; }
+[data-phase="offline"] .dot { background: var(--down); }
+@keyframes pulse { from { opacity: 0.35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { [data-phase="working"] .dot { animation: none; } }
+
+.screen { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.recipe { background: var(--panel); border: 1px solid var(--edge); border-radius: 16px; padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 8px; max-height: 100%; overflow: hidden; }
+.recipe .title { font-size: 24px; font-weight: 650; line-height: 1.2; }
+.recipe .site { font-size: 16px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recipe .row { font-size: 18px; }
+.recipe .row b { color: var(--dim); font-weight: 500; font-size: 16px; display: block; }
+.snap { position: relative; margin: 0 auto; max-height: 100%; max-width: 100%; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--edge); background: var(--panel); }
+.snap img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.box { position: absolute; border: 4px solid var(--mark); border-radius: 6px; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55); }
+.box span { position: absolute; left: -4px; top: -4px; transform: translateY(-100%); background: var(--mark); color: #000;
+  font-size: 16px; font-weight: 600; padding: 1px 8px; border-radius: 4px 4px 0 0; white-space: nowrap; }
+.box.low span { top: auto; bottom: -4px; transform: translateY(100%); border-radius: 0 0 4px 4px; }
+
+.talk { min-height: 84px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+.you { font-size: 16px; color: var(--dim); }
+.reply { font-size: 22px; font-weight: 550; line-height: 1.25; }
+
+.keys { display: flex; gap: 10px; }
+button, input { flex: 1 1 0; min-width: 0; min-height: 88px; padding: 10px 16px; border-radius: 16px; cursor: pointer;
+  background: var(--panel); color: var(--ink); border: 2px solid var(--edge); font: inherit; text-align: left;
+  outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; }
+button small { display: block; font-size: 16px; color: var(--dim); }
+input { flex-grow: 2; font-size: 20px; }
+input::placeholder { color: var(--dim); }
+button:focus, input:focus { border-color: var(--focus); box-shadow: 0 0 18px rgba(111, 227, 255, 0.4); }
+button:disabled { opacity: 0.45; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<video id="room" autoplay muted playsinline></video>
+<main id="app" data-phase="offline">
+  <div class="status">
+    <span><i class="dot"></i><b id="phase">Connecting</b></span>
+    <span id="cam">Camera off</span>
+  </div>
+  <div class="screen" id="screen"></div>
+  <div class="talk">
+    <div class="you" id="you"></div>
+    <div class="reply" id="reply"></div>
+  </div>
+  <div class="keys">
+    <button type="button" id="speak" disabled><small>Say</small><span id="line"></span></button>
+    <input type="text" id="ask" placeholder="Type or dictate" autocomplete="off" aria-label="Say something to the assistant" hidden>
+    <button type="button" id="mic" hidden><small>Microphone</small><span id="micstate">Off</span></button>
+    <button type="button" id="again" hidden><small>Session</small>Start over</button>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const app = $('app'), screenEl = $('screen'), video = $('room');
+const PHASE = { listening: 'Listening', working: 'Working', offline: 'Disconnected' };
+const KEEP_FRAMES = 4;          // snapshots kept for highlights
+const REPLY_HOLD_MS = 8000;     // how long a spoken line stays on screen
+
+let ws, lines = [], next = 0, free = false, waiting = false, micOn = false, speaking = false, recipe = null, highlight = null, clearTimer = null, replyTimer = null;
+const frames = new Map();       // frame_id -> { url, ratio }
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function setPhase(phase) {
+  app.dataset.phase = phase;
+  $('phase').textContent = PHASE[phase];
+  renderKeys();
+  syncMic();
+}
+
+function renderKeys() {
+  const done = !free && next >= lines.length, offline = app.dataset.phase === 'offline';
+  $('speak').hidden = free || done || offline;
+  $('ask').hidden = !free || offline;
+  $('mic').hidden = !free || offline || !recognition;
+  $('again').hidden = !(done || offline);
+  $('speak').disabled = app.dataset.phase !== 'listening';
+  $('micstate').textContent = micOn ? 'On' : 'Off';
+  if (!free && !done) $('line').textContent = '“' + lines[next].text + '”';
+  const controls = focusable();
+  if (controls.length && !controls.includes(document.activeElement)) controls[0].focus();
+}
+
+function focusable() {
+  return [...document.querySelectorAll('.keys button, .keys input')].filter(c => !c.hidden && !c.disabled);
+}
+
+function send(text, utterance_id) {
+  if (app.dataset.phase !== 'listening') return;
+  $('you').textContent = 'You: ' + text;
+  $('reply').textContent = '';
+  waiting = true;
+  ws.send(JSON.stringify({ type: 'utterance', utterance_id: utterance_id || null, text }));
+  setPhase('working');
+}
+
+// What is on the display: a highlight covers the recipe; with neither, the screen stays dark.
+function renderScreen() {
+  screenEl.replaceChildren();
+  if (highlight) {
+    const frame = frames.get(highlight.frame_id) || { url: null, ratio: 4 / 3 };
+    const snap = el('div', 'snap');
+    snap.style.aspectRatio = frame.ratio;
+    snap.style.width = `min(100%, ${screenEl.clientHeight * frame.ratio}px)`;
+    if (frame.url) { const img = el('img'); img.src = frame.url; img.alt = 'Snapshot of your view'; snap.append(img); }
+    const [ymin, xmin, ymax, xmax] = highlight.box;       // 0..1000 of the frame
+    const box = el('div', 'box' + (ymin < 120 ? ' low' : ''));
+    box.style.cssText = `top:${ymin / 10}%;left:${xmin / 10}%;height:${(ymax - ymin) / 10}%;width:${(xmax - xmin) / 10}%`;
+    if (highlight.label) box.append(el('span', '', highlight.label));
+    snap.append(box);
+    screenEl.append(snap);
+  } else if (recipe) {
+    const card = el('div', 'recipe');
+    card.append(el('div', 'title', recipe.title));
+    let site = recipe.url;
+    try { site = new URL(recipe.url).hostname; } catch (e) { /* show the raw string */ }
+    card.append(el('div', 'site', site));
+    const ing = el('div', 'row'); ing.append(el('b', '', 'Ingredients'), recipe.ingredients.join(', '));
+    const steps = el('div', 'row'); steps.append(el('b', '', 'Steps'), recipe.steps);
+    card.append(ing, steps);
+    screenEl.append(card);
+  }
+}
+
+function say(text) {
+  waiting = false;
+  $('reply').textContent = text;
+  clearTimeout(replyTimer);
+  replyTimer = setTimeout(() => { $('reply').textContent = ''; }, REPLY_HOLD_MS);
+  if (!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = /[一-鿿]/.test(text) ? 'zh-CN' : 'en-US';
+  // The microphone stays closed while the assistant talks, so it does not hear itself.
+  u.onend = u.onerror = () => { speaking = speechSynthesis.speaking || speechSynthesis.pending; syncMic(); };
+  speaking = true; syncMic();
+  speechSynthesis.speak(u);
+}
+
+function capture(frame_id) {
+  let jpeg = null;
+  if (video.videoWidth) {
+    const c = document.createElement('canvas');
+    c.width = 640; c.height = Math.round(640 * video.videoHeight / video.videoWidth);
+    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+    const url = c.toDataURL('image/jpeg', 0.7);
+    frames.set(frame_id, { url, ratio: c.width / c.height });
+    while (frames.size > KEEP_FRAMES) frames.delete(frames.keys().next().value);
+    jpeg = url.slice(url.indexOf(',') + 1);
+  }
+  ws.send(JSON.stringify({ type: 'frame', frame_id, jpeg }));
+}
+
+const handlers = {
+  hello(m) { free = !m.script; lines = m.script || []; next = 0; renderKeys(); },
+  listening() {
+    if (free && waiting) $('reply').textContent = 'No answer. While cooking, start with “Gemini”.';
+    waiting = false;
+    setPhase('listening');
+  },
+  capture(m) { capture(m.frame_id); },
+  say(m) { say(m.text); },
+  recipe(m) { recipe = m.recipe; renderScreen(); },
+  hide_recipe() { recipe = null; renderScreen(); },
+  highlight(m) {
+    highlight = m; renderScreen();
+    clearTimeout(clearTimer);
+    clearTimer = setTimeout(handlers.clear_highlight, m.ttl * 1000);
+  },
+  clear_highlight() { clearTimeout(clearTimer); highlight = null; renderScreen(); },
+};
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onmessage = e => { const m = JSON.parse(e.data); if (handlers[m.type]) handlers[m.type](m); };
+  ws.onclose = () => setPhase('offline');
+}
+
+$('speak').addEventListener('click', () => {
+  if (next >= lines.length) return;
+  const line = lines[next];
+  if (app.dataset.phase === 'listening') next++;
+  send(line.text, line.utterance_id);
+});
+
+// Typed text, or on the glasses the system composer (handwriting or dictation), arrives as `change`.
+function submitAsk() {
+  const text = $('ask').value.trim();
+  if (!text || app.dataset.phase !== 'listening') return;    // keep the text until the assistant is free
+  $('ask').value = '';
+  send(text);
+}
+$('ask').addEventListener('change', submitAsk);
+
+// Open microphone, as on the real product: everything heard is sent, and the assistant decides
+// whether it was addressed. Web apps on the glasses have no microphone; this is the computer's.
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+if (Recognition) {
+  recognition = new Recognition();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = new URLSearchParams(location.search).get('lang') || navigator.language;
+  recognition.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const text = e.results[i][0].transcript.trim();
+      if (e.results[i].isFinal && text) send(text);
+    }
+  };
+  recognition.onend = () => { if (micWanted()) startMic(); };
+  recognition.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { micOn = false; renderKeys(); }
+  };
+}
+function micWanted() { return micOn && !speaking && app.dataset.phase === 'listening'; }
+function startMic() { try { recognition.start(); } catch (e) { /* already running */ } }
+function syncMic() {
+  if (!recognition) return;
+  if (micWanted()) startMic(); else recognition.stop();
+}
+$('mic').addEventListener('click', () => { micOn = !micOn; renderKeys(); syncMic(); });
+$('again').addEventListener('click', () => location.reload());
+
+// D-pad and band input arrive as arrow keys and Enter. Enter activates the focused control once.
+document.addEventListener('keydown', e => {
+  const controls = focusable(), active = document.activeElement, typing = active === $('ask');
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (typing) submitAsk();
+    else if (controls.includes(active)) active.click();
+    else if (controls.length) controls[0].focus();
+  } else if (e.key.startsWith('Arrow') && controls.length) {
+    if (typing && $('ask').value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;   // moves the caret
+    e.preventDefault();
+    const step = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+    controls[(controls.indexOf(active) + step + controls.length) % controls.length].focus();
+  }
+});
+
+// The glasses camera is not available to web apps; on a computer the webcam stands in for it.
+// ?camera=show also paints it behind the display, for use without the simulator's own background.
+async function startCamera() {
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
+    $('cam').textContent = 'Camera on';
+    if (new URLSearchParams(location.search).get('camera') === 'show') video.classList.add('shown');
+  } catch (e) {
+    $('cam').textContent = 'No camera';
+  }
+}
+
+startCamera();
+connect();
+</script>
+</body>
+</html>
