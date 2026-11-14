@@ -80,12 +80,16 @@ def test_whole_scripted_session_through_the_page(page):
     start = page.speak(0)
     assert types(start) == ["capture", "say", "recipe", "say"]
     assert start[1]["text"] == "Let me search."
-    assert start[2]["recipe"] == {"title": "Quick beef stir-fry", "url": "https://recipes.example/beef-stir-fry",
-                                  "image": None, "ingredients": ["beef", "soy sauce", "garlic", "spring onion"]}
+    recipe = start[2]["recipe"]
+    assert set(recipe) == {"title", "url", "image", "ingredients", "instructions"}   # display fields only
+    assert recipe["title"] == "Quick beef stir-fry" and len(recipe["instructions"]) == 4
 
     assert [m["recipe"]["title"] for m in page.speak(1) if m["type"] == "recipe"] == ["Beef and broccoli"]
     assert [m["recipe"]["title"] for m in page.speak(2) if m["type"] == "recipe"] == ["Home-style beef stir-fry"]
-    assert types(page.speak(3)) == ["hide_recipe", "say"]
+    accepted = page.speak(3)
+    assert types(accepted) == ["hide_recipe", "step", "say"]
+    assert accepted[1] == {"type": "step", "number": 1, "total": 4,       # the third recipe, after two "no"s
+                           "text": "Fry the ginger in oil.", "ingredients": ["1 thumb ginger, sliced"]}
     assert page.speak(4) == []                                   # "pass me the salt": not for the assistant
 
     advice = page.speak(5)

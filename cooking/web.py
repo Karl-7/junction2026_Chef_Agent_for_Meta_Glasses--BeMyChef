@@ -5,7 +5,8 @@ orchestrator runs in its own thread and blocks on this adapter; the server feeds
 in through `receive` and gives `send` to deliver messages to the page.
 
 Server -> page: listening | capture{frame_id} | say{text} | recipe{recipe} | hide_recipe
-                | highlight{frame_id, box, label, ttl} | clear_highlight
+                | step{number, total, text, ingredients} | highlight{frame_id, box, label, ttl}
+                | clear_highlight
 Page -> server: utterance{utterance_id, text} | frame{frame_id, jpeg (base64) or null}
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ import queue
 from typing import Callable
 
 FRAME_TIMEOUT_S = 5.0
-RECIPE_FIELDS = ("title", "url", "image", "ingredients")    # what the display shows
+RECIPE_FIELDS = ("title", "url", "image", "ingredients", "instructions")    # what the display shows
 
 
 class WebDevice:
@@ -63,6 +64,9 @@ class WebDevice:
 
     def hide_recipe(self):
         self._send({"type": "hide_recipe"})
+
+    def show_step(self, step):
+        self._send({"type": "step", **step})
 
     def show_highlight(self, frame_id, box, label, ttl):
         self._send({"type": "highlight", "frame_id": frame_id, "box": box, "label": label, "ttl": ttl})

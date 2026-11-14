@@ -65,7 +65,7 @@ def test_only_pages_with_a_picture_and_an_ingredient_list_are_candidates():
     assert "beef%20stir-fry%20recipe" in web.fetched[0]
     assert found == [{"recipe_id": "w1", "url": "https://a.example/stir-fry", "title": "Beef stir-fry",
                       "image": "https://a.example/wok.jpg", "ingredients": ["300 g beef", "2 tbsp soy sauce"],
-                      "steps": "Sear the beef. Add soy sauce."}]
+                      "steps": "Sear the beef. Add soy sauce.", "instructions": ["Sear the beef.", "Add soy sauce."]}]
 
 
 def test_loaded_text_is_the_recipe_itself():
@@ -122,7 +122,7 @@ def test_a_page_without_structured_data_uses_the_finders_reading_and_the_share_p
     mapo, stir_fry = recipes.search("麻婆豆腐", [])
     assert mapo == {"recipe_id": "w1", "url": "https://f.example/mapo", "title": "麻婆豆腐",
                     "image": "https://f.example/dish.jpg", "ingredients": ["豆腐 400克", "牛肉末 100克"],
-                    "steps": "豆腐切块焯水。 炒香豆瓣酱。"}
+                    "steps": "豆腐切块焯水。 炒香豆瓣酱。", "instructions": ["豆腐切块焯水。", "炒香豆瓣酱。"]}
     assert recipes.fetch("w1").endswith("Steps:\n1. 豆腐切块焯水。\n2. 炒香豆瓣酱。")
     assert stir_fry["title"] == "Beef stir-fry" and stir_fry["ingredients"] == ["300 g beef", "2 tbsp soy sauce"]
 
