@@ -4,7 +4,7 @@ The page draws the 600x600 display and speaks; its webcam stands in for the glas
 orchestrator runs in its own thread and blocks on this adapter; the server feeds page messages
 in through `receive` and gives `send` to deliver messages to the page.
 
-Server -> page: listening | capture{frame_id} | say{text} | recipe{recipe} | hide_recipe
+Server -> page: listening | prompt | capture{frame_id} | say{text} | recipe{recipe} | hide_recipe
                 | step{number, total, text, ingredients} | highlight{frame_id, box, label, ttl}
                 | clear_highlight
 Page -> server: utterance{utterance_id, text} | frame{frame_id, jpeg (base64) or null}
@@ -58,6 +58,9 @@ class WebDevice:
 
     def say(self, text):
         self._send({"type": "say", "text": text})
+
+    def show_prompt(self):
+        self._send({"type": "prompt"})
 
     def show_recipe(self, recipe):
         self._send({"type": "recipe", "recipe": {k: recipe.get(k) for k in RECIPE_FIELDS}})

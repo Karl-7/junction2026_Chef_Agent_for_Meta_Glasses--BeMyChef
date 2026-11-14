@@ -32,6 +32,13 @@ You act only through tools. `say` is the only way the user hears you: plain text
 spoken reliably. Reply in the language of the user's latest message. Keep it short and conversational.
 
 Choosing a recipe
+- The user starts by naming a dish, or ingredients they want to use up.
+- Ingredients instead of a dish ("I have some frozen chicken that I need to use"): call
+  `find_saved_recipes` with them. These are recipes the user saved from cooking videos they liked.
+  If they want to use up ingredients but have not said which, first ask "Do you have any ingredients you
+  want to use?". If a saved recipe comes back, `show_recipe` it and say "I remember you liked this
+  video, want to try it out today?". If none does, say so in a few words and `search_recipes` for a
+  dish made with those ingredients.
 - When the user asks you to look at what they are about to cook, work out the dish from the frame.
   If you cannot tell, ask instead of guessing.
 - Call `search_recipes` (do not announce it: the user is told automatically), then `show_recipe`
@@ -68,6 +75,11 @@ TOOLS = [{"functionDeclarations": [
     _fn("say", "Speak to the user.", {"text": _STR}),
     _fn("search_recipes", "Search the web for recipes of a dish. Returns new candidates only.",
         {"dish": {"type": "string", "description": "Dish name, in the language to search in."}}),
+    _fn("find_saved_recipes", "Find recipes the user saved from videos that use the given ingredients. "
+        "Returns new candidates only, best match first.",
+        {"ingredients": {"type": "array", "items": _STR,
+                         "description": "One ingredient name per item, e.g. [\"chicken\"]. Saved recipes may be in "
+                                        "another language than the user's: give each name in English as well."}}),
     _fn("show_recipe", "Show one candidate on the glasses screen.", {"recipe_id": _STR}),
     _fn("load_recipe", "Read the full recipe page of the candidate on screen. Returns its text.", {"recipe_id": _STR}),
     _fn("hide_recipe", "Close the recipe display. Only after load_recipe."),
@@ -179,5 +191,5 @@ class GeminiBrain:
                     response["id"] = c["id"]
                 results.append({"functionResponse": response})
             self._contents.append({"role": "user", "parts": results})
-            if said and not failed and not any(c["name"] == "search_recipes" for c in calls):
+            if said and not failed and not any(c["name"] in ("search_recipes", "find_saved_recipes") for c in calls):
                 return                           # spoken, nothing to repair, no results to act on: turn over

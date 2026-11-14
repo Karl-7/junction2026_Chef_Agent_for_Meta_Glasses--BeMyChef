@@ -18,13 +18,16 @@ from typing import Callable
 
 import uvicorn
 from starlette.applications import Starlette
-from starlette.responses import FileResponse
+from starlette.middleware import Middleware
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.responses import FileResponse, Response
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from cooking import claude_search
 from cooking.gemini import Gemini, GeminiBrain
 from cooking.orchestrator import Session
+from cooking.saved import SavedRecipes
 from cooking.web import WebDevice
 from cooking.webrecipes import WebRecipes, duckduckgo
 
@@ -49,17 +52,22 @@ def gemini(log_dir: Path) -> Callable:
             log_file.flush()
 
         find = duckduckgo() if problem else claude_search.ClaudeSearch(api, model, log)
-        return Session(device, WebRecipes(find)), GeminiBrain(Gemini(log=log))
+        # Nothing on the display until the user calls the assistant.
+        return Session(device, WebRecipes(find), saved=SavedRecipes(), asleep=True), GeminiBrain(Gemini(log=log))
     return start
 
 
 def create_app(start: Callable) -> Starlette:
     """`start(device)` -> (session, brain) for each page that connects."""
     async def page(_):
-        return FileResponse(ROOT / "ui" / "glasses.html")
+        return FileResponse(ROOT / "ui" / "glasses.html", headers={"Cache-Control": "no-cache"})   # edits show on reload
 
     async def icon(_):
-        return FileResponse(ROOT / "ui" / "icon.png")
+        return FileResponse(ROOT / "ui" / "icon.png", headers={"Cache-Control": "max-age=86400"})
+
+    async def saved_photo(request):
+        path = SavedRecipes().photo(request.path_params["name"])
+        return FileResponse(path, headers={"Cache-Control": "max-age=86400"}) if path else Response(status_code=404)
 
     async def socket(ws: WebSocket):
         await ws.accept()
@@ -75,7 +83,9 @@ def create_app(start: Callable) -> Starlette:
         finally:
             device.close()
 
-    return Starlette(routes=[Route("/", page), Route("/icon.png", icon), WebSocketRoute("/ws", socket)])
+    return Starlette(routes=[Route("/", page), Route("/icon.png", icon), Route("/saved/{name}", saved_photo),
+                             WebSocketRoute("/ws", socket)],
+                     middleware=[Middleware(GZipMiddleware)])     # the page is a third of its size on the glasses' link
 
 
 def main():

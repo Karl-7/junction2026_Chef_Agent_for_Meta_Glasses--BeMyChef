@@ -19,6 +19,9 @@ class Device(Protocol):
 
     def say(self, text: str) -> None: ...
 
+    def show_prompt(self) -> None:
+        """The assistant was called: the display, empty until now, invites the user to say what to cook."""
+
     def show_recipe(self, recipe: dict) -> None: ...
 
     def hide_recipe(self) -> None: ...
@@ -34,7 +37,8 @@ class Device(Protocol):
 
 class RecipeSource(Protocol):
     def search(self, dish: str, exclude: list[str]) -> list[dict]:
-        """Candidates {"recipe_id", "title", "url", "ingredients", "steps", "instructions"}, none in `exclude`.
+        """`dish` is a dish name on the web; for the user's saved recipes it is a list of ingredients.
+        Candidates {"recipe_id", "title", "url", "ingredients", "steps", "instructions"}, none in `exclude`.
 
         `steps` is a short summary for the model; `instructions` is the method as published, one
         string per step, which the display walks through while cooking."""
