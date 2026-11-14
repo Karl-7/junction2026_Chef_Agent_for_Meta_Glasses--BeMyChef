@@ -15,6 +15,7 @@ from google import genai
 from google.genai import types
 
 from cooking.chat import FAILED, NOT_A_RECIPE, WELCOME, WORKING, recipe_messages
+from cooking.saved import SavedRecipes
 
 load_dotenv()
 
@@ -33,6 +34,7 @@ CANDIDATE_MODELS = [
 ]
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+saved_recipes = SavedRecipes()      # what the glasses offer when the user names ingredients to use up
 TIKTOK_URL_REGEX = re.compile(r"https?://(?:www\.|vm\.|vt\.|m\.)?tiktok\.com/[^\s]+")
 
 
@@ -216,6 +218,12 @@ def handle_tiktok_message(chat_id: int, tiktok_url: str) -> None:
                 return
 
             has_photo = extract_frame(video_path, recipe.final_dish_timestamp_seconds, image_path)
+
+            try:
+                saved_recipes.save(recipe.dish_name, tiktok_url, recipe.ingredients, recipe.steps, recipe.prep_time,
+                                   recipe.cook_time, recipe.servings, photo=image_path if has_photo else None)
+            except OSError as e:                # the recipe is still sent
+                print(f"[SAVE ERROR] {e}", flush=True)
 
             # 发回菜谱 + 成品图: three messages, the photo with the first
             messages = recipe_messages(

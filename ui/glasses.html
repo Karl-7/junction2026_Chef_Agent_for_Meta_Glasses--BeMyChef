@@ -2,12 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+<meta name="description" content="Hands-free cooking assistant for Meta Ray-Ban Display glasses: step-by-step recipes you can follow by voice while you cook.">
+<meta name="mrbd-web-app-capable" content="yes">
 <title>Cooking Assistant</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
 /*
  * Meta Ray-Ban Display: a 600x600 additive screen. Black emits no light, so black is see-through and
@@ -84,8 +86,7 @@ button, input { font: inherit; color: inherit; }
 /* ---- the bar: what the microphone hears is written here as it is said; without a microphone, type here */
 #controls { position: fixed; left: var(--pad); right: var(--pad); bottom: 20px; display: flex; gap: 8px; }
 .control { flex: none; height: 56px; padding: 0 16px; border: 0; border-radius: 10px; background: transparent;
-  color: var(--dim); cursor: pointer; outline: none; white-space: nowrap; font-size: 19px;
-  transition: color 80ms, box-shadow 80ms; }
+  color: var(--dim); cursor: pointer; outline: none; white-space: nowrap; font-size: 19px; }
 #ask { flex: 1 1 0; min-width: 0; height: 56px; padding: 0 16px; border: 0; border-radius: 10px; background: transparent;
   outline: none; font-size: 19px; color: var(--ink); box-shadow: inset 0 -1px 0 var(--faint); }
 #ask::placeholder { color: var(--dim); }
@@ -98,7 +99,7 @@ button, input { font: inherit; color: inherit; }
   #layout { display: grid; grid-template-columns: 600px; }
   #stage { position: relative; inset: auto; width: 600px; height: 600px; border-radius: 28px; overflow: hidden;
     isolation: isolate; background: #000; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 40px 120px -40px rgb(0 0 0 / 0.9); }
-  .note { display: block; margin: 16px 0 0; text-align: center; font-size: 13px; color: #5a5a5a; }
+  .note { display: block; margin: 16px 0 0; text-align: center; font-size: 18px; color: var(--dim); }
   #room { opacity: 1; filter: brightness(0.5) saturate(0.85); }   /* the lenses are tinted */
   #hud { mix-blend-mode: screen; padding-bottom: var(--pad); }
   #room, #hud { border-radius: inherit; }   /* blended layers ignore the parent's clip in Chrome */
@@ -138,11 +139,13 @@ const KEEP_FRAMES = 4;        // snapshots kept for highlights
 
 const state = {
   phase: 'connecting',        // connecting | listening | thinking | offline
+  awake: false,               // the display stays empty until the user calls the assistant
   recipe: null,               // candidate on screen, waiting for yes or no
   step: null,                 // {number, total, text, ingredients} while cooking
   highlight: null,            // {frame_id, box, label}
   heard: '', reply: '',
   mic: false, speaking: false,
+  visiting: null,             // {awake, recipe, step} of an earlier screen reached with Back, until the server moves on
 };
 const frames = new Map();     // frame_id -> {url, ratio}
 let replyTimer = null, highlightTimer = null, shownView = '', fitView = null;
@@ -159,6 +162,7 @@ function h(tag, props = {}, ...children) {
 // ---- render ----------------------------------------------------------------------------------
 
 function render() {
+  $('hud').hidden = !shown().awake && state.phase !== 'offline';   // not called yet: nothing is lit
   renderTop();
   renderView();
   renderCaption();
@@ -170,8 +174,8 @@ function render() {
 function renderTop() {
   $('status').textContent = { connecting: 'Connecting', listening: 'Listening', thinking: 'Thinking',
                               offline: 'Disconnected' }[state.phase];
-  const { step } = state;
-  if (!step || state.recipe || state.highlight) return $('meta').replaceChildren();
+  const { step, recipe } = shown();
+  if (!step || recipe || state.highlight) return $('meta').replaceChildren();
   const bar = h('div', { className: 'progress' }, ...Array.from({ length: step.total }, (_, i) =>
     h('i', { className: i + 1 < step.number ? 'done' : i + 1 === step.number ? 'now' : '' })));
   $('meta').replaceChildren(h('span', { textContent: `Step ${step.number} of ${step.total}` }), bar);
@@ -179,7 +183,7 @@ function renderTop() {
 
 // A view is rebuilt, and animates in, only when what it shows changes.
 function renderView() {
-  const { highlight, recipe, step } = state;
+  const { highlight } = state, { recipe, step } = shown();
   const key = highlight ? `hl:${highlight.frame_id}:${highlight.box}` : recipe ? `recipe:${recipe.url}:${recipe.image}`
             : step ? `step:${step.number}:${step.text}` : 'idle';
   if (key === shownView) return;
@@ -193,7 +197,7 @@ function renderView() {
 function idleView() {
   return { className: 'idle', children: [
     h('h1', { textContent: 'What are we cooking?' }),
-    h('p', { textContent: 'Start cooking by saying what you want!' }),
+    h('p', { textContent: 'Name a dish, or the ingredients you want to use.' }),
   ] };
 }
 
@@ -210,7 +214,7 @@ function recipeView(recipe) {
   let site = '';
   try { site = new URL(recipe.url).hostname.replace(/^www\./, ''); } catch { /* no site shown */ }
   const steps = recipe.instructions?.length;
-  const photo = recipe.image ? h('img', { className: 'photo', alt: '', referrerPolicy: 'no-referrer', src: recipe.image,
+  const photo = recipe.image ? h('img', { className: 'photo', alt: '', referrerPolicy: 'no-referrer', decoding: 'async', src: recipe.image,
                                           onerror() { this.remove(); fitList(list, recipe.ingredients); } }) : null;
   return { className: 'recipe', children: [
     photo,
@@ -225,7 +229,7 @@ function highlightView(hl) {
   const frame = frames.get(hl.frame_id) || { url: null, ratio: 4 / 3 };
   const snap = h('div', { className: 'snap' });
   snap.style.aspectRatio = frame.ratio;
-  if (frame.url) snap.append(h('img', { src: frame.url, alt: 'Snapshot of your view' }));
+  if (frame.url) snap.append(h('img', { src: frame.url, alt: 'Snapshot of your view', decoding: 'async' }));
   const [ymin, xmin, ymax, xmax] = hl.box;            // 0..1000 of the frame
   const box = h('div', { className: 'box' + (ymin < 120 ? ' low' : '') }, hl.label && h('span', { textContent: hl.label }));
   box.style.cssText = `top:${ymin / 10}%;left:${xmin / 10}%;height:${(ymax - ymin) / 10}%;width:${(xmax - xmin) / 10}%`;
@@ -237,13 +241,14 @@ function highlightView(hl) {
 }
 
 function renderCaption() {
-  const { heard, reply, recipe, step, phase } = state;
+  const { heard, reply, phase } = state, { recipe, step } = shown();
   let lines;
   if (reply) lines = [heard && h('div', { className: 'heard', textContent: `“${heard}”` }),
                       h('div', { className: 'reply enter', textContent: reply })];
   else if (phase === 'thinking' && heard) lines = [h('div', { className: 'heard', textContent: `“${heard}”` })];
+  else if (recipe && state.visiting) lines = [];        // an earlier candidate: no longer a question
   else if (recipe) lines = [h('div', { className: 'hint', textContent: 'Say “yes” or “no”' })];
-  else if (step) lines = [h('div', { className: 'hint', textContent: 'Say “next”, or ask a question' })];
+  else if (step) lines = [h('div', { className: 'hint', textContent: 'Say “next”, or ask with “Gemini, …”' })];
   else lines = [];
   $('caption').replaceChildren(...lines.filter(Boolean));
 }
@@ -281,6 +286,33 @@ function focusable() {
   return [...$('controls').querySelectorAll('button, input')].filter(c => c.offsetParent && !c.disabled);
 }
 
+// ---- screens and browser history ---------------------------------------------------------------
+// Each screen has a URL: #/ (empty, not called yet), #/start (what to cook?), #/recipe (a candidate), #/step/N. A new screen from the server pushes
+// a history entry that carries what it showed, so Back and Forward can draw it again. A highlight is a
+// short overlay on the current screen and adds no entry.
+
+function shown() { return state.visiting || state; }
+function screenOf({ awake, recipe, step }) {
+  return recipe ? '#/recipe' : step ? `#/step/${step.number}` : awake ? '#/start' : '#/';
+}
+
+// The server's screen is the one on display again: record it, as a new entry when the screen changed.
+function syncHistory() {
+  state.visiting = null;
+  const hash = screenOf(state), entry = { awake: state.awake, recipe: state.recipe, step: state.step };
+  const url = location.pathname + location.search + hash;
+  if (hash === (location.hash || '#/')) history.replaceState(entry, '', url);
+  else history.pushState(entry, '', url);
+}
+
+window.addEventListener('popstate', e => {
+  const to = e.state, live = state.step;
+  state.visiting = to && screenOf(to) !== screenOf(state) ? to : null;
+  // One step away from where the recipe is: move the recipe too, as saying "back" or "next" would.
+  const moved = state.visiting && !to.recipe && to.step && live && !state.recipe ? to.step.number - live.number : 0;
+  if (Math.abs(moved) !== 1 || !send(moved < 0 ? 'back' : 'next')) render();
+});
+
 // ---- talking to the server -------------------------------------------------------------------
 
 let ws;
@@ -296,6 +328,7 @@ function send(text) {
 
 const handlers = {
   listening() { state.phase = 'listening'; },
+  prompt() { state.awake = true; },
   capture(m) { capture(m.frame_id); },
   say(m) { speak(m.text); },
   recipe(m) { state.recipe = m.recipe; },
@@ -311,7 +344,13 @@ const handlers = {
 
 function connect() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-  ws.onmessage = e => { const m = JSON.parse(e.data); handlers[m.type]?.(m); render(); };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    handlers[m.type]?.(m);
+    // Not on hide_recipe: the first step follows it, and the idle screen in between is not a screen to go back to.
+    if (['recipe', 'step', 'listening'].includes(m.type)) syncHistory();
+    render();
+  };
   ws.onclose = () => { state.phase = 'offline'; render(); };
 }
 
@@ -415,6 +454,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
+syncHistory();               // a reload starts a new session, on the idle screen
 render();
 startCamera();
 connect();

@@ -22,7 +22,7 @@ _NOT_NAMES = {
     "teaspoons", "cup", "cups", "clove", "cloves", "pinch", "piece", "pieces", "slice", "slices", "handful",
     "bunch", "can", "cans", "stalk", "stalks", "sprig", "sprigs", "dash", "a", "an", "the", "of", "and", "or",
     "to", "for", "about", "taste", "optional", "plus", "more", "fresh", "large", "small", "medium", "sliced",
-    "chopped", "minced", "diced", "grated", "crushed", "finely", "thinly", "roughly", "peeled", "cut", "into",
+    "chopped", "minced", "diced", "grated", "crushed", "finely", "thinly", "roughly", "peeled", "cut", "into", "frozen",
     "light", "dark", "extra", "virgin", "neutral", "vegetable", "ground", "whole", "cooked", "raw", "boneless", "skinless",
 }
 # Names too general to identify an ingredient alone: "sauce" must not match soy sauce to oyster sauce.
@@ -32,14 +32,19 @@ _CJK_AMOUNTS = re.compile(r"[\d\s.,/~-]+|克|千克|毫升|升|勺|汤匙|茶匙
 _CJK = re.compile(r"[一-鿿]")
 
 
-def command(text: str) -> str | None:
-    """NEXT, BACK, or None when the utterance is anything other than a bare step command."""
+def phrase(text: str) -> str:
+    """The utterance in lower case without punctuation or a leading wake word."""
     words = re.sub(r"[^\w\s一-鿿]", " ", text.lower()).split()
     if words and words[0] == "gemini":
         words = words[1:]
-    phrase = " ".join(words)
+    return " ".join(words)
+
+
+def command(text: str) -> str | None:
+    """NEXT, BACK, or None when the utterance is anything other than a bare step command."""
+    said = phrase(text)
     for name, phrases in COMMANDS.items():
-        if phrase in phrases:
+        if said in phrases:
             return name
     return None
 

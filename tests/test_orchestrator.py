@@ -222,3 +222,67 @@ def test_a_question_reaches_the_brain_with_the_step_on_screen(session):
     brain = Recording()
     session.handle({"utterance_id": "q", "text": "Gemini, how much garlic?"}, brain)
     assert brain.utterances[0]["step"] == session.current_step() and session.current_step()["number"] == 2
+
+
+# ---- waking up, and recipes saved from videos ------------------------------------------------
+
+from cooking.orchestrator import ASLEEP, IDLE, OPENING
+from cooking.saved import SavedRecipes
+
+
+class Silent:
+    """A brain that must not be reached."""
+    def respond(self, utterance, call):
+        raise AssertionError(f"the brain was asked about {utterance['text']!r}")
+
+
+class Heard:
+    def __init__(self):
+        self.texts = []
+
+    def respond(self, utterance, call):
+        self.texts.append(utterance["text"])
+
+
+@pytest.fixture
+def asleep(kitchen, clock, tmp_path):
+    replay = ReplayKitchen(kitchen.call)
+    session = Session(replay, replay, clock, saved=SavedRecipes(tmp_path), asleep=True)
+    session.prompts = []
+    replay.show_prompt = lambda: session.prompts.append(True)
+    return session
+
+
+def test_nothing_happens_until_the_assistant_is_called(asleep, kitchen):
+    asleep.handle({"utterance_id": "x", "text": "I want to cook beef stir-fry"}, Silent())
+    assert (asleep.state, asleep.prompts, kitchen.events) == (ASLEEP, [], [])
+
+
+@pytest.mark.parametrize("text, lang", [("Gemini, I want to cook.", "en"), ("gemini", "en"), ("Gemini，我想做饭", "zh")])
+def test_calling_the_assistant_shows_the_prompt_and_asks_dish_or_ingredients(asleep, kitchen, text, lang):
+    asleep.handle({"utterance_id": "x", "text": text}, Silent())
+    assert (asleep.state, asleep.prompts) == (IDLE, [True])
+    assert [(e["tool"], e["args"]["text"]) for e in kitchen.events] == [("say", OPENING[lang])]
+
+
+def test_a_call_that_already_says_what_to_cook_goes_to_the_brain(asleep, kitchen):
+    brain = Heard()
+    asleep.handle({"utterance_id": "x", "text": "Gemini, I want to cook some chicken pasta"}, brain)
+    assert (asleep.prompts, brain.texts, tools(kitchen)) == ([True], ["Gemini, I want to cook some chicken pasta"], [])
+
+
+def test_a_saved_recipe_is_found_by_ingredient_shown_and_loaded(asleep, tmp_path):
+    asleep.saved.save("Crispy chicken rice", "https://www.tiktok.com/@a/video/1",
+                      ["2 chicken thighs", "1 cup rice"], ["Fry the chicken.", "Serve on rice."])
+    asleep.handle({"utterance_id": "x", "text": "Gemini"}, Silent())
+    (cand,) = asleep.call("find_saved_recipes", ingredients=["frozen chicken"])["candidates"]
+    assert cand["title"] == "Crispy chicken rice"
+    assert asleep.call("find_saved_recipes", ingredients=["chicken"])["candidates"] == []     # new candidates only
+    assert asleep.call("show_recipe", recipe_id=cand["recipe_id"]) == {"ok": True}
+    assert "Fry the chicken." in asleep.call("load_recipe", recipe_id=cand["recipe_id"])["text"]
+    asleep.call("hide_recipe")
+    assert asleep.state == COOKING and asleep.current_step()["text"] == "Fry the chicken."
+
+
+def test_without_saved_recipes_the_search_finds_nothing(session):
+    assert session.call("find_saved_recipes", ingredients=["chicken"]) == {"candidates": []}

@@ -28,6 +28,9 @@ class ReplayKitchen:
     def say(self, text):
         self._call("say", text=text)
 
+    def show_prompt(self):
+        pass                                     # replayed sessions start awake; the sidecar has no such screen
+
     def show_recipe(self, recipe):
         self._call("show_recipe", recipe_id=recipe["recipe_id"])
 

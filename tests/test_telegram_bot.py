@@ -7,10 +7,12 @@ pytest.importorskip("google.genai")
 
 
 @pytest.fixture
-def bot(monkeypatch):
+def bot(monkeypatch, tmp_path):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     import Telegram_bot
+    from cooking.saved import SavedRecipes
+    monkeypatch.setattr(Telegram_bot, "saved_recipes", SavedRecipes(tmp_path))
     return Telegram_bot
 
 
@@ -45,6 +47,14 @@ def test_recipe_goes_out_as_three_messages_with_the_photo(bot, monkeypatch):
 def test_a_video_that_is_not_a_recipe_gets_one_plain_answer(bot, monkeypatch):
     assert run(bot, monkeypatch, recipe(bot, is_cooking_video=False)) == [
         ("text", bot.WORKING), ("text", bot.NOT_A_RECIPE)]
+    assert bot.saved_recipes.all() == []
+
+
+def test_the_recipe_is_saved_for_the_glasses(bot, monkeypatch):
+    run(bot, monkeypatch, recipe(bot))
+    (saved,) = bot.saved_recipes.search(["salmon"], [])
+    assert (saved["title"], saved["url"], saved["instructions"]) == (
+        "Garlic butter salmon", "https://www.tiktok.com/@a/video/1", ["Season the salmon."])
 
 
 def test_headings_become_bold_and_text_is_escaped(bot):
