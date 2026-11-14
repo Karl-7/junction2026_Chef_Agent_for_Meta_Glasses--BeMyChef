@@ -101,7 +101,7 @@ export CLAUDE_API_KEY=...     # optional: better recipe search; without it a pla
 
 Open <http://localhost:8765> in Chrome and allow the camera and microphone. In a wide window the page shows the display over your webcam, as in the picture above. On the glasses, open the same address as a web app. It has to be reachable from the glasses, for example through ngrok.
 
-For the Telegram bot, set `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY`, install `ffmpeg`, and run `.venv/bin/python Telegram_bot.py`.
+For the Telegram bot, set `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY`, and run `.venv/bin/python Telegram_bot.py`. With `CLOUDINARY_URL` also set, [Cloudinary](https://cloudinary.com) shrinks each video before Gemini reads it and takes the dish photo from it. Without it, the original video is used and the photo needs `ffmpeg`.
 
 ## How we test it
 

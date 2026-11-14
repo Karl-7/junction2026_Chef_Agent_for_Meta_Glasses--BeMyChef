@@ -3,7 +3,6 @@ import os
 import re
 import time
 import tempfile
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 
@@ -15,6 +14,7 @@ from google import genai
 from google.genai import types
 
 from cooking.chat import FAILED, NOT_A_RECIPE, WELCOME, WORKING, recipe_messages
+from cooking.media import open_video
 from cooking.saved import SavedRecipes
 
 load_dotenv()
@@ -123,31 +123,6 @@ def download_tiktok_video(url: str, output_path: str) -> None:
         ydl.download([url])
 
 
-def extract_frame(video_path: str, timestamp: float, output_image_path: str) -> bool:
-    try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-ss",
-                str(max(0.0, timestamp)),
-                "-i",
-                video_path,
-                "-frames:v",
-                "1",
-                "-q:v",
-                "2",
-                output_image_path,
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return os.path.exists(output_image_path)
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return False
-
-
 def analyze_video_with_gemini(video_path: str) -> RecipeOutput:
     print("[Gemini] 开始上传视频...", flush=True)
     uploaded_file = gemini_client.files.upload(file=video_path)
@@ -211,13 +186,15 @@ def handle_tiktok_message(chat_id: int, tiktok_url: str) -> None:
             download_tiktok_video(tiktok_url, video_path)
             print(f"[TG] 视频下载完成: {tiktok_url}", flush=True)
 
-            recipe = analyze_video_with_gemini(video_path)
+            # Cloudinary shrinks the video for Gemini and takes the dish photo (local fallback without it).
+            with open_video(video_path) as video:
+                recipe = analyze_video_with_gemini(video.for_model(tmpdir))
 
-            if not recipe.is_cooking_video:
-                send_telegram_text(chat_id, NOT_A_RECIPE)
-                return
+                if not recipe.is_cooking_video:
+                    send_telegram_text(chat_id, NOT_A_RECIPE)
+                    return
 
-            has_photo = extract_frame(video_path, recipe.final_dish_timestamp_seconds, image_path)
+                has_photo = video.frame(recipe.final_dish_timestamp_seconds, image_path)
 
             try:
                 saved_recipes.save(recipe.dish_name, tiktok_url, recipe.ingredients, recipe.steps, recipe.prep_time,

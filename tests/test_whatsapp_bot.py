@@ -19,11 +19,32 @@ def recipe(bot, **overrides):
     return bot.RecipeOutput(**{**fields, **overrides})
 
 
+class FakeVideo:
+    """Stands in for cooking.media.open_video: no Cloudinary, no ffmpeg."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+    def for_model(self, out_dir):
+        return self.path
+
+    def frame(self, seconds, out_path):
+        with open(out_path, "wb") as f:
+            f.write(b"jpeg")
+        return True
+
+
 def run(bot, monkeypatch, result):
     sent = []
     monkeypatch.setattr(bot, "download_tiktok_video", lambda url, path: None)
     monkeypatch.setattr(bot, "analyze_video_with_gemini", lambda path: result)
-    monkeypatch.setattr(bot, "extract_frame", lambda *args: True)
+    monkeypatch.setattr(bot, "open_video", FakeVideo)
     monkeypatch.setattr(bot, "PUBLIC_BASE_URL", "https://bot.example")
     monkeypatch.setattr(bot, "send_whatsapp_messages",
                         lambda frm, to, messages, media_url=None: sent.append((messages, media_url)))

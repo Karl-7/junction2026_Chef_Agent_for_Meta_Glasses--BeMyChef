@@ -9,4 +9,4 @@ python-multipart
 twilio
 google-genai
 yt-dlp
-pydantic
+pydanticcloudinary

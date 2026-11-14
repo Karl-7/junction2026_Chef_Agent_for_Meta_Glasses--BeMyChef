@@ -3,7 +3,6 @@ import re
 import time
 import uuid
 import tempfile
-import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -18,6 +17,7 @@ from google import genai
 from google.genai import types
 
 from cooking.chat import FAILED, NOT_A_RECIPE, WELCOME, WORKING, recipe_messages
+from cooking.media import open_video
 
 load_dotenv()
 
@@ -114,31 +114,6 @@ def download_tiktok_video(url: str, output_path: str) -> None:
         ydl.download([url])
 
 
-def extract_frame(video_path: str, timestamp: float, output_image_path: str) -> bool:
-    try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-ss",
-                str(max(0.0, timestamp)),
-                "-i",
-                video_path,
-                "-frames:v",
-                "1",
-                "-q:v",
-                "2",
-                output_image_path,
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return os.path.exists(output_image_path)
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return False
-
-
 def analyze_video_with_gemini(video_path: str) -> RecipeOutput:
     print("[Gemini] 开始上传视频文件...", flush=True)
     uploaded_file = gemini_client.files.upload(file=video_path)
@@ -208,19 +183,17 @@ def process_tiktok_request(sender: str, bot_number: str, tiktok_url: str) -> Non
             # 在 download_tiktok_video 后面加：
             print("[BG] 1. 下载完成，开始上传给 Gemini...", flush=True)
             
-            # 2. Gemini 分析视频
-            recipe = analyze_video_with_gemini(video_path)
-            # 在 analyze_video_with_gemini 后面加：
-            print(f"[BG] 2. Gemini 分析完成: is_cooking={recipe.is_cooking_video}", flush=True)
-            if not recipe.is_cooking_video:
-                send_whatsapp_messages(bot_number, sender, [NOT_A_RECIPE])
-                return
+            # 2. Gemini 分析视频 (Cloudinary shrinks the video first and takes the dish photo; local fallback)
+            with open_video(video_path) as video:
+                recipe = analyze_video_with_gemini(video.for_model(tmpdir))
+                print(f"[BG] 2. Gemini 分析完成: is_cooking={recipe.is_cooking_video}", flush=True)
+                if not recipe.is_cooking_video:
+                    send_whatsapp_messages(bot_number, sender, [NOT_A_RECIPE])
+                    return
 
-            # 3. 提取成品图
-            if PUBLIC_BASE_URL and extract_frame(
-                video_path, recipe.final_dish_timestamp_seconds, image_path
-            ):
-                image_url = f"{PUBLIC_BASE_URL}/static/{image_filename}"
+                # 3. 提取成品图
+                if PUBLIC_BASE_URL and video.frame(recipe.final_dish_timestamp_seconds, image_path):
+                    image_url = f"{PUBLIC_BASE_URL}/static/{image_filename}"
 
             # 4. 发回菜谱 + 成品图: three messages, the photo with the first
             messages = recipe_messages(
