@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 
+from cooking.chat import FAILED, NOT_A_RECIPE, WELCOME, WORKING, recipe_messages
+
 load_dotenv()
 
 # --- 配置 ---
@@ -49,32 +51,15 @@ class RecipeOutput(BaseModel):
     steps: List[str] = Field(
         description="Step-by-step cooking instructions in clear, concise order."
     )
-    chef_gordon_note: str = Field(
-        description="A witty, passionate 1-2 sentence remark in the style of Chef Gordon Ramsay about the dish."
-    )
     final_dish_timestamp_seconds: float = Field(
         description="The exact timestamp (in seconds) in the video that gives the clearest, most appetizing shot of the finished plated dish."
     )
 
 
 # --- Telegram API 辅助函数 ---
-def split_message(text: str, max_len: int = 3800) -> List[str]:
-    if len(text) <= max_len:
-        return [text]
-    chunks: List[str] = []
-    current = ""
-    for line in text.splitlines(keepends=True):
-        if len(current) + len(line) > max_len:
-            if current:
-                chunks.append(current.rstrip())
-                current = ""
-            while len(line) > max_len:
-                chunks.append(line[:max_len])
-                line = line[max_len:]
-        current += line
-    if current:
-        chunks.append(current.rstrip())
-    return chunks
+def to_html(message: str) -> str:
+    """A `cooking.chat` message as Telegram HTML: text escaped, a `*heading*` line made bold."""
+    return re.sub(r"^\*(.+)\*$", r"<b>\1</b>", html.escape(message), flags=re.M)
 
 
 def send_chat_action(chat_id: int, action: str = "typing") -> None:
@@ -88,19 +73,24 @@ def send_chat_action(chat_id: int, action: str = "typing") -> None:
         pass
 
 
-def send_telegram_text(chat_id: int, text: str, parse_mode: Optional[str] = "HTML") -> None:
-    for chunk in split_message(text):
-        payload = {"chat_id": chat_id, "text": chunk}
-        if parse_mode:
-            payload["parse_mode"] = parse_mode
+def send_telegram_text(chat_id: int, message: str) -> None:
+    payload = {"chat_id": chat_id, "text": to_html(message), "parse_mode": "HTML"}
+    resp = httpx.post(f"{TG_API_BASE}/sendMessage", json=payload, timeout=30.0)
+    # 如果 HTML 格式偶然解析失败，自动降级为纯文本重发，保证不丢消息
+    if resp.status_code == 400:
+        resp = httpx.post(f"{TG_API_BASE}/sendMessage", json={"chat_id": chat_id, "text": message}, timeout=30.0)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Telegram sendMessage error {resp.status_code}: {resp.text}")
 
-        resp = httpx.post(f"{TG_API_BASE}/sendMessage", json=payload, timeout=30.0)
-        # 如果 HTML 格式偶然解析失败，自动降级为纯文本重发，保证不丢消息
-        if resp.status_code == 400 and parse_mode:
-            payload.pop("parse_mode", None)
-            resp = httpx.post(f"{TG_API_BASE}/sendMessage", json=payload, timeout=30.0)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Telegram sendMessage error {resp.status_code}: {resp.text}")
+
+def send_telegram_messages(chat_id: int, messages: List[str], image_path: Optional[str] = None) -> None:
+    """Send `messages` in order; the photo, if any, goes with the first."""
+    for idx, message in enumerate(messages):
+        if idx == 0 and image_path:
+            send_chat_action(chat_id, "upload_photo")
+            send_telegram_photo(chat_id, image_path, caption=to_html(message))
+        else:
+            send_telegram_text(chat_id, message)
 
 
 def send_telegram_photo(chat_id: int, image_path: str, caption: str = "") -> None:
@@ -169,10 +159,10 @@ def analyze_video_with_gemini(video_path: str) -> RecipeOutput:
             raise RuntimeError("Gemini failed to process the uploaded video.")
 
         prompt = (
-            "You are Chef_Gordon, an expert culinary AI modeled after Chef Gordon Ramsay. "
-            "Watch and listen to this cooking video carefully (including narration, captions, "
-            "and visual cues). Summarize it into an accurate, structured recipe. "
-            "Keep steps concise and clear. "
+            "Watch and listen to this cooking video carefully, including narration, captions "
+            "and what is shown. Write it down as an accurate recipe someone can cook from. "
+            "Give ingredients with quantities. Write each step as one short, plain instruction. "
+            "Name the dish plainly, in sentence case. "
             "Identify the best timestamp showing the finished dish so we can take a snapshot of it."
         )
 
@@ -207,31 +197,13 @@ def analyze_video_with_gemini(video_path: str) -> RecipeOutput:
             pass
 
 
-def format_telegram_recipe(recipe: RecipeOutput) -> str:
-    e = html.escape
-    ingredients_text = "\n".join(f"• {e(item)}" for item in recipe.ingredients)
-    steps_text = "\n".join(f"{i}. {e(step)}" for i, step in enumerate(recipe.steps, 1))
-
-    return (
-        f"👨‍🍳 <b>Chef_Gordon's Kitchen</b> 👨‍🍳\n\n"
-        f"🍽️ <b>{e(recipe.dish_name)}</b>\n"
-        f"⏱️ Prep: {e(recipe.prep_time)} | Cook: {e(recipe.cook_time)} | Servings: {e(recipe.servings)}\n\n"
-        f"💬 <i>\"{e(recipe.chef_gordon_note)}\"</i>\n\n"
-        f"🛒 <b>Ingredients:</b>\n{ingredients_text}\n\n"
-        f"🔥 <b>Instructions:</b>\n{steps_text}"
-    )
-
-
 def handle_tiktok_message(chat_id: int, tiktok_url: str) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         video_path = os.path.join(tmpdir, "tiktok_video.mp4")
         image_path = os.path.join(tmpdir, "dish.jpg")
 
         try:
-            send_telegram_text(
-                chat_id,
-                "👨‍🍳 <b>Chef_Gordon</b> is watching the video now... Give me a moment, don't rush perfection!",
-            )
+            send_telegram_text(chat_id, WORKING)
             send_chat_action(chat_id, "typing")
 
             download_tiktok_video(tiktok_url, video_path)
@@ -240,37 +212,30 @@ def handle_tiktok_message(chat_id: int, tiktok_url: str) -> None:
             recipe = analyze_video_with_gemini(video_path)
 
             if not recipe.is_cooking_video:
-                send_telegram_text(
-                    chat_id,
-                    "Bloody hell! That doesn't look like a cooking video. Send me a real recipe!",
-                )
+                send_telegram_text(chat_id, NOT_A_RECIPE)
                 return
 
-            if extract_frame(video_path, recipe.final_dish_timestamp_seconds, image_path):
-                send_chat_action(chat_id, "upload_photo")
-                caption = (
-                    f"🍽️ <b>{html.escape(recipe.dish_name)}</b>\n"
-                    f"💬 <i>\"{html.escape(recipe.chef_gordon_note)}\"</i>"
-                )
-                send_telegram_photo(chat_id, image_path, caption=caption)
+            has_photo = extract_frame(video_path, recipe.final_dish_timestamp_seconds, image_path)
 
-            send_telegram_text(chat_id, format_telegram_recipe(recipe))
+            # 发回菜谱 + 成品图: three messages, the photo with the first
+            messages = recipe_messages(
+                recipe.dish_name, recipe.prep_time, recipe.cook_time, recipe.servings,
+                recipe.ingredients, recipe.steps,
+            )
+            send_telegram_messages(chat_id, messages, image_path=image_path if has_photo else None)
             print("[TG] 菜谱与成品图发送成功!", flush=True)
 
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)
             try:
-                send_telegram_text(
-                    chat_id,
-                    "Sorry, Chef_Gordon burned the pan trying to read that TikTok link. Make sure the video is public and try again!",
-                )
+                send_telegram_text(chat_id, FAILED)
             except Exception as send_err:
                 print(f"[SEND ERROR] {send_err}", flush=True)
 
 
 # --- 主循环（长轮询，无需 ngrok） ---
 def main() -> None:
-    print("👨‍🍳 Chef_Gordon Telegram Bot 已启动，正在监听消息...", flush=True)
+    print("Cooking assistant Telegram bot 已启动，正在监听消息...", flush=True)
     offset = 0
     executor = ThreadPoolExecutor(max_workers=4)
 
@@ -301,11 +266,7 @@ def main() -> None:
                 if match:
                     executor.submit(handle_tiktok_message, chat_id, match.group(0))
                 else:
-                    executor.submit(
-                        send_telegram_text,
-                        chat_id,
-                        "👨‍🍳 Welcome to <b>Chef_Gordon</b>!\n\nShare a TikTok cooking video link with me, and I'll break it down into a structured recipe with a photo of the finished dish.",
-                    )
+                    executor.submit(send_telegram_text, chat_id, WELCOME)
 
         except KeyboardInterrupt:
             print("\nBot stopped.", flush=True)

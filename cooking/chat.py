@@ -1,9 +1,10 @@
-"""What the WhatsApp bot says, as plain text. Pure functions: the bot only sends what these return.
+"""What the WhatsApp and Telegram bots say, as plain text. Pure functions: a bot only sends what these return.
 
 A recipe goes out as three short messages instead of one long one, so the ingredients and the method
 can each be found again while cooking: the dish (sent with its photo), the ingredients, the method.
-WhatsApp formatting only: *bold* headings, "- " lists, "1. " steps. Times come from the model's
-reading of a video, so they are given as estimates.
+WhatsApp formatting only: *bold* headings, "- " lists, "1. " steps (the Telegram bot turns the
+headings into its own bold). Times come from the model's reading of a video, so they are given as
+estimates.
 """
 from __future__ import annotations
 
