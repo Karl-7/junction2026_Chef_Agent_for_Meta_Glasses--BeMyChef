@@ -17,6 +17,8 @@ from twilio.twiml.messaging_response import MessagingResponse
 from google import genai
 from google.genai import types
 
+from cooking.chat import FAILED, NOT_A_RECIPE, WELCOME, WORKING, recipe_messages
+
 load_dotenv()
 
 # --- 配置 ---
@@ -35,7 +37,7 @@ CANDIDATE_MODELS = [
 STATIC_DIR = Path("static")
 STATIC_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="Chef_Gordon WhatsApp Bot")
+app = FastAPI(title="Cooking assistant WhatsApp bot")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -58,54 +60,34 @@ class RecipeOutput(BaseModel):
     steps: List[str] = Field(
         description="Step-by-step cooking instructions in clear, concise order."
     )
-    chef_gordon_note: str = Field(
-        description="A witty, passionate 1-2 sentence remark in the style of Chef Gordon Ramsay about the dish."
-    )
     final_dish_timestamp_seconds: float = Field(
         description="The exact timestamp (in seconds) in the video that gives the clearest, most appetizing shot of the finished plated dish."
     )
 
 
 # --- 辅助函数 ---
-def split_message(text: str, max_len: int = 1550) -> List[str]:
-    """避免单条消息超过 Twilio WhatsApp 的 1600 字符限制"""
-    if len(text) <= max_len:
-        return [text]
-
-    chunks: List[str] = []
-    current = ""
-    for line in text.splitlines(keepends=True):
-        if len(current) + len(line) > max_len:
-            if current:
-                chunks.append(current.rstrip())
-                current = ""
-            # 万一单行就超长，直接硬切
-            while len(line) > max_len:
-                chunks.append(line[:max_len])
-                line = line[max_len:]
-        current += line
-    if current:
-        chunks.append(current.rstrip())
-    return chunks
+SECONDS_BETWEEN_MESSAGES = 1.0   # Twilio does not guarantee order; a pause keeps the messages in sequence
 
 
-def send_whatsapp_message(
+def send_whatsapp_messages(
     from_number: str,
     to_number: str,
-    body: str,
+    messages: List[str],
     media_url: Optional[str] = None,
 ) -> None:
+    """Send `messages` in order; the photo, if any, goes with the first."""
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
         raise RuntimeError("Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN in .env")
 
     url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
-    chunks = split_message(body)
 
-    for idx, chunk in enumerate(chunks):
+    for idx, message in enumerate(messages):
+        if idx:
+            time.sleep(SECONDS_BETWEEN_MESSAGES)
         data = {
             "From": from_number,
             "To": to_number,
-            "Body": chunk,
+            "Body": message,
         }
         if idx == 0 and media_url:
             data["MediaUrl"] = media_url
@@ -174,10 +156,10 @@ def analyze_video_with_gemini(video_path: str) -> RecipeOutput:
         print(f"[Gemini] 视频就绪 (state={uploaded_file.state})，开始调用模型...", flush=True)
 
         prompt = (
-            "You are Chef_Gordon, an expert culinary AI modeled after Chef Gordon Ramsay. "
-            "Watch and listen to this cooking video carefully (including narration, captions, "
-            "and visual cues). Summarize it into an accurate, structured recipe. "
-            "Keep steps concise and clear. "
+            "Watch and listen to this cooking video carefully, including narration, captions "
+            "and what is shown. Write it down as an accurate recipe someone can cook from. "
+            "Give ingredients with quantities. Write each step as one short, plain instruction. "
+            "Name the dish plainly, in sentence case. "
             "Identify the best timestamp showing the finished dish so we can take a snapshot of it."
         )
 
@@ -212,20 +194,6 @@ def analyze_video_with_gemini(video_path: str) -> RecipeOutput:
             pass
 
 
-def format_whatsapp_recipe(recipe: RecipeOutput) -> str:
-    ingredients_text = "\n".join(f"• {item}" for item in recipe.ingredients)
-    steps_text = "\n".join(f"{i}. {step}" for i, step in enumerate(recipe.steps, 1))
-
-    return (
-        f"👨‍🍳 *Chef_Gordon's Kitchen* 👨‍🍳\n\n"
-        f"🍽️ *{recipe.dish_name}*\n"
-        f"⏱️ Prep: {recipe.prep_time} | Cook: {recipe.cook_time} | Servings: {recipe.servings}\n\n"
-        f"💬 _\"{recipe.chef_gordon_note}\"_\n\n"
-        f"🛒 *Ingredients:*\n{ingredients_text}\n\n"
-        f"🔥 *Instructions:*\n{steps_text}"
-    )
-
-
 def process_tiktok_request(sender: str, bot_number: str, tiktok_url: str) -> None:
     image_filename = f"dish_{uuid.uuid4().hex}.jpg"
     image_path = str(STATIC_DIR / image_filename)
@@ -245,11 +213,7 @@ def process_tiktok_request(sender: str, bot_number: str, tiktok_url: str) -> Non
             # 在 analyze_video_with_gemini 后面加：
             print(f"[BG] 2. Gemini 分析完成: is_cooking={recipe.is_cooking_video}", flush=True)
             if not recipe.is_cooking_video:
-                send_whatsapp_message(
-                    bot_number,
-                    sender,
-                    "Bloody hell! That doesn't look like a cooking video. Send me a real recipe!",
-                )
+                send_whatsapp_messages(bot_number, sender, [NOT_A_RECIPE])
                 return
 
             # 3. 提取成品图
@@ -258,23 +222,17 @@ def process_tiktok_request(sender: str, bot_number: str, tiktok_url: str) -> Non
             ):
                 image_url = f"{PUBLIC_BASE_URL}/static/{image_filename}"
 
-            # 4. 发回菜谱 + 成品图
-            message_body = format_whatsapp_recipe(recipe)
-            send_whatsapp_message(
-                bot_number,
-                sender,
-                message_body,
-                media_url=image_url,
+            # 4. 发回菜谱 + 成品图: three messages, the photo with the first
+            messages = recipe_messages(
+                recipe.dish_name, recipe.prep_time, recipe.cook_time, recipe.servings,
+                recipe.ingredients, recipe.steps,
             )
+            send_whatsapp_messages(bot_number, sender, messages, media_url=image_url)
 
         except Exception as e:
             print(f"Error processing video: {e}")
             try:
-                send_whatsapp_message(
-                    bot_number,
-                    sender,
-                    "Sorry, Chef_Gordon burned the pan trying to read that TikTok link. Make sure the video is public and try again!",
-                )
+                send_whatsapp_messages(bot_number, sender, [FAILED])
             except Exception as send_err:
                 print(f"Failed to send error notification to WhatsApp: {send_err}")
 
@@ -292,17 +250,11 @@ async def whatsapp_webhook(
     match = TIKTOK_URL_REGEX.search(Body)
 
     if not match:
-        twiml.message(
-            "👨‍🍳 Welcome to *Chef_Gordon*!\n\n"
-            "Share a TikTok cooking video link with me, and I'll break it down into "
-            "a structured recipe with a photo of the finished dish."
-        )
+        twiml.message(WELCOME)
         return Response(content=str(twiml), media_type="application/xml")
 
     tiktok_url = match.group(0)
     background_tasks.add_task(process_tiktok_request, From, To, tiktok_url)
 
-    twiml.message(
-        "👨‍🍳 *Chef_Gordon* is watching the video now... Give me a moment, don't rush perfection!"
-    )
+    twiml.message(WORKING)
     return Response(content=str(twiml), media_type="application/xml")
