@@ -26,6 +26,7 @@ def test_anything_longer_is_not_a_command(text):
     ("Finish with spring onion.", "2 spring onions, chopped"),
     ("Season with salt.", "1 tsp salt"),
     ("Add the eggs one at a time.", "3 large eggs"),
+    ("Heat the oil in a wok.", "1 tbsp neutral oil"),         # "neutral" describes it, "oil" names it
     ("豆腐切块焯水。", "豆腐 400克"),
 ])
 def test_a_step_names_its_ingredients(step, ingredient):
