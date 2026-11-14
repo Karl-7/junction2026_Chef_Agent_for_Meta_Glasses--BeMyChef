@@ -135,6 +135,7 @@ button, input { font: inherit; color: inherit; }
 // Everything the server says lands in `state`; `render` draws the display from it.
 
 const REPLY_HOLD_MS = 8000;   // how long a spoken answer stays on screen
+const LOOKING_MS = 1200;      // how long "Looking" shows after the camera takes a photo
 const KEEP_FRAMES = 4;        // snapshots kept for highlights
 
 const state = {
@@ -145,10 +146,12 @@ const state = {
   highlight: null,            // {frame_id, box, label}
   heard: '', reply: '',
   mic: false, speaking: false,
+  looking: false,             // the camera just took a photo
+  unreadStep: null,           // a new step's text, read aloud when the assistant's turn is over
   visiting: null,             // {awake, recipe, step} of an earlier screen reached with Back, until the server moves on
 };
 const frames = new Map();     // frame_id -> {url, ratio}
-let replyTimer = null, highlightTimer = null, shownView = '', fitView = null;
+let replyTimer = null, highlightTimer = null, lookingTimer = null, shownView = '', fitView = null;
 
 const $ = id => document.getElementById(id);
 const video = $('room');
@@ -172,8 +175,8 @@ function render() {
 }
 
 function renderTop() {
-  $('status').textContent = { connecting: 'Connecting', listening: 'Listening', thinking: 'Thinking',
-                              offline: 'Disconnected' }[state.phase];
+  $('status').textContent = state.looking ? 'Looking' : { connecting: 'Connecting', listening: 'Listening',
+                              thinking: 'Thinking', offline: 'Disconnected' }[state.phase];
   const { step, recipe } = shown();
   if (!step || recipe || state.highlight) return $('meta').replaceChildren();
   const bar = h('div', { className: 'progress' }, ...Array.from({ length: step.total }, (_, i) =>
@@ -327,13 +330,26 @@ function send(text) {
 }
 
 const handlers = {
-  listening() { state.phase = 'listening'; },
+  listening() {
+    state.phase = 'listening';
+    // A new step is read aloud once the turn is over, after anything the assistant said with it.
+    if (state.unreadStep) { voice(state.unreadStep); state.unreadStep = null; }
+  },
   prompt() { state.awake = true; },
-  capture(m) { capture(m.frame_id); },
+  capture(m) {
+    capture(m.frame_id);
+    // Show that the camera was used, every time it is.
+    state.looking = true;
+    clearTimeout(lookingTimer);
+    lookingTimer = setTimeout(() => { state.looking = false; render(); }, LOOKING_MS);
+  },
   say(m) { speak(m.text); },
   recipe(m) { state.recipe = m.recipe; },
   hide_recipe() { state.recipe = null; },
-  step(m) { state.step = { number: m.number, total: m.total, text: m.text, ingredients: m.ingredients || [] }; },
+  step(m) {
+    if (m.text !== state.step?.text) state.unreadStep = m.text;
+    state.step = { number: m.number, total: m.total, text: m.text, ingredients: m.ingredients || [] };
+  },
   highlight(m) {
     state.highlight = m;
     clearTimeout(highlightTimer);
@@ -356,10 +372,16 @@ function connect() {
 
 // ---- the device: speech out, camera, microphone, keys ----------------------------------------
 
+// Spoken and shown as the answer.
 function speak(text) {
   state.reply = text;
   clearTimeout(replyTimer);
   replyTimer = setTimeout(() => { state.reply = ''; state.heard = ''; render(); }, REPLY_HOLD_MS);
+  voice(text);
+}
+
+// Spoken only: for text that is already on the display, such as a step.
+function voice(text) {
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = /[一-鿿]/.test(text) ? 'zh-CN' : 'en-US';
