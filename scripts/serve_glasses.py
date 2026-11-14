@@ -1,7 +1,6 @@
 """Serve the glasses page and run the assistant against it, without glasses.
 
-    python -m scripts.serve_glasses                    # Gemini talks, Claude searches for recipes
-    python -m scripts.serve_glasses --brain scripted   # no model: the scenario's lines and recipes
+    python -m scripts.serve_glasses      # Gemini talks, Claude searches for recipes
 
 Then open http://localhost:8765 in Chrome. The page is the device: display, speech, and the
 computer's webcam and microphone standing in for the glasses'.
@@ -26,21 +25,10 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from cooking import claude_search
 from cooking.gemini import Gemini, GeminiBrain
 from cooking.orchestrator import Session
-from cooking.replay import ReplayKitchen
 from cooking.web import WebDevice
 from cooking.webrecipes import WebRecipes, duckduckgo
-from kitchen.kitchen import Kitchen
-from policies.scripted import Scripted
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def scripted(scenario: dict) -> Callable:
-    """No model: the page offers the scenario's user lines; recipes come from the scenario file."""
-    def start(device):
-        lines = [{"utterance_id": u["id"], "text": u["text"]} for u in scenario["utterances"]]
-        return Session(device, ReplayKitchen(Kitchen(scenario).call)), Scripted(scenario), lines
-    return start
 
 
 def gemini(log_dir: Path) -> Callable:
@@ -61,12 +49,12 @@ def gemini(log_dir: Path) -> Callable:
             log_file.flush()
 
         find = duckduckgo() if problem else claude_search.ClaudeSearch(api, model, log)
-        return Session(device, WebRecipes(find)), GeminiBrain(Gemini(log=log)), None
+        return Session(device, WebRecipes(find)), GeminiBrain(Gemini(log=log))
     return start
 
 
 def create_app(start: Callable) -> Starlette:
-    """`start(device)` -> (session, brain, scripted user lines or None) for each page that connects."""
+    """`start(device)` -> (session, brain) for each page that connects."""
     async def page(_):
         return FileResponse(ROOT / "ui" / "glasses.html")
 
@@ -77,8 +65,7 @@ def create_app(start: Callable) -> Starlette:
         await ws.accept()
         loop = asyncio.get_running_loop()
         device = WebDevice(lambda message: asyncio.run_coroutine_threadsafe(ws.send_json(message), loop))
-        session, brain, script = start(device)
-        await ws.send_json({"type": "hello", "script": script})
+        session, brain = start(device)
         threading.Thread(target=session.run, args=(brain,), daemon=True).start()
         try:
             while True:
@@ -93,17 +80,11 @@ def create_app(start: Callable) -> Starlette:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--brain", default="gemini", choices=["gemini", "scripted"])
-    ap.add_argument("--scenario", default="synthetic-stirfry", help="for --brain scripted")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8765)
     a = ap.parse_args()
-    if a.brain == "gemini":
-        Gemini()                                 # fail now, not on the first question, if the key is missing
-        start = gemini(ROOT / "runs" / "live")
-    else:
-        start = scripted(json.loads((ROOT / "scenarios" / f"{a.scenario}.json").read_text()))
-    uvicorn.run(create_app(start), host=a.host, port=a.port)
+    Gemini()                                     # fail now, not on the first question, if the key is missing
+    uvicorn.run(create_app(gemini(ROOT / "runs" / "live")), host=a.host, port=a.port)
 
 
 if __name__ == "__main__":

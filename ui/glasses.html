@@ -17,8 +17,7 @@
  *   - Large type, read at a glance with busy hands. Nothing under 18px.
  *   - Motion only on change: a new step or answer arrives with 8px of movement. Nothing loops.
  * On a computer wider than the glasses, the same page becomes a preview: the display is composited over
- * the webcam (mix-blend-mode: screen, which is how an additive display works) and the controls move to a
- * panel beside it.
+ * the webcam (mix-blend-mode: screen, which is how an additive display works) and the bar sits under it.
  */
 :root {
   --ink: #ffffff; --dim: #8f8f8f; --faint: #3a3a3a; --accent: #5ce1e6;
@@ -81,29 +80,21 @@ button, input { font: inherit; color: inherit; }
 .reply { font-size: 24px; line-height: 1.3; font-weight: 500; letter-spacing: -0.01em; }
 .hint { font-size: 18px; color: var(--dim); }
 
-/* ---- controls: one slim row inside the display; a panel beside it on a computer -------------- */
+/* ---- the bar: what the microphone hears is written here as it is said; without a microphone, type here */
 #controls { position: fixed; left: var(--pad); right: var(--pad); bottom: 20px; display: flex; gap: 8px; }
-#controls .label, #controls .keys { display: none; }
-#lines { display: contents; list-style: none; }
-#lines li:not(.next) { display: none; }
-.say, .control { flex: 1 1 0; min-width: 0; height: 56px; padding: 0 16px; border: 0; border-radius: 10px;
-  background: transparent; color: var(--dim); text-align: left; cursor: pointer; outline: none;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 19px;
+.control { flex: none; height: 56px; padding: 0 16px; border: 0; border-radius: 10px; background: transparent;
+  color: var(--dim); cursor: pointer; outline: none; white-space: nowrap; font-size: 19px;
   transition: color 80ms, box-shadow 80ms; }
-.say b { font-weight: 400; color: var(--faint); margin-right: 10px; }
-.say:focus, .control:focus, #ask:focus { color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
-.say:disabled { opacity: 0.4; cursor: default; }
-#ask { flex: 2 1 0; min-width: 0; height: 56px; padding: 0 16px; border: 0; border-radius: 10px; background: transparent;
+#ask { flex: 1 1 0; min-width: 0; height: 56px; padding: 0 16px; border: 0; border-radius: 10px; background: transparent;
   outline: none; font-size: 19px; color: var(--ink); box-shadow: inset 0 -1px 0 var(--faint); }
 #ask::placeholder { color: var(--dim); }
+.control:focus, #ask:focus { color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+#ask.dictating { color: var(--dim); }   /* still being said */
 
 /* ---- preview on a computer ----------------------------------------------------------------- */
-@media (min-width: 960px) and (min-height: 680px) {
+@media (min-width: 960px) and (min-height: 760px) {
   body { background: #0b0b0c; display: grid; place-items: center; }
-  #layout { display: grid; grid-template-columns: 600px 300px; grid-template-rows: auto auto; column-gap: 56px;
-    align-items: center; }
-  #controls { grid-column: 2; grid-row: 1; }
-  .note { grid-column: 1; grid-row: 2; }
+  #layout { display: grid; grid-template-columns: 600px; }
   #stage { position: relative; inset: auto; width: 600px; height: 600px; border-radius: 28px; overflow: hidden;
     isolation: isolate; background: #000; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 40px 120px -40px rgb(0 0 0 / 0.9); }
   .note { display: block; margin: 16px 0 0; text-align: center; font-size: 13px; color: #5a5a5a; }
@@ -111,22 +102,9 @@ button, input { font: inherit; color: inherit; }
   #hud { mix-blend-mode: screen; padding-bottom: var(--pad); }
   #room, #hud { border-radius: inherit; }   /* blended layers ignore the parent's clip in Chrome */
 
-  #controls { position: static; flex-direction: column; gap: 4px; }
-  #controls .label { display: block; margin: 0 0 10px 12px; font-size: 14px; color: var(--dim); }
-  #controls .keys { display: block; margin: 18px 0 0 12px; font-size: 13px; color: #5a5a5a; }
-  #lines { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; }
-  #lines li, #lines li:not(.next) { display: block; }
-  #lines li span { display: block; padding: 10px 12px; font-size: 15px; line-height: 1.35; color: #767676; }
-  #lines li.done span { color: #4d4d4d; text-decoration: line-through; text-decoration-color: #3a3a3a; }
-  .say, .control { flex: none; width: 100%; height: auto; min-height: 44px; padding: 10px 12px; font-size: 15px;
-    line-height: 1.35; white-space: normal; border-radius: 8px; color: var(--ink); }
-  .say b { display: none; }
-  .control { color: var(--dim); }
-  .say:hover, .control:hover { background: rgb(255 255 255 / 0.05); }
-  #free { display: flex; flex-direction: column; gap: 6px; }
-  #ask { flex: none; width: 100%; height: 44px; font-size: 15px; border-radius: 8px;
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12); }
-  .control { flex: none; }
+  #controls { position: static; margin-top: 16px; }
+  #ask { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12); }
+  .control:hover { background: rgb(255 255 255 / 0.05); }
 }
 
 @media (prefers-reduced-motion: reduce) { .enter { animation: none; } }
@@ -142,18 +120,12 @@ button, input { font: inherit; color: inherit; }
       <div id="caption"></div>
     </main>
   </figure>
-  <p class="note">Glasses preview. On the display, black is see-through.</p>
-
-  <section id="controls" aria-label="Controls">
-    <p class="label">You say</p>
-    <ol id="lines"></ol>
-    <div id="free" hidden>
-      <input type="text" id="ask" placeholder="Type or dictate" autocomplete="off" aria-label="Say something to the assistant">
-      <button type="button" class="control" id="mic">Microphone off</button>
-    </div>
+  <section id="controls" aria-label="Say something to the assistant">
+    <input type="text" id="ask" autocomplete="off" aria-label="What you say" hidden>
+    <button type="button" class="control" id="mic" hidden>Mic off</button>
     <button type="button" class="control" id="again" hidden>Start over</button>
-    <p class="keys">Arrow keys move, Enter speaks</p>
   </section>
+  <p class="note">Glasses preview. On the display, black is see-through.</p>
 </div>
 
 <script>
@@ -165,8 +137,6 @@ const KEEP_FRAMES = 4;        // snapshots kept for highlights
 
 const state = {
   phase: 'connecting',        // connecting | listening | thinking | offline
-  script: null,               // scripted user lines, or null when the user speaks freely
-  nextLine: 0,
   recipe: null,               // candidate on screen, waiting for yes or no
   step: null,                 // {number, total, text, ingredients} while cooking
   highlight: null,            // {frame_id, box, label}
@@ -294,19 +264,12 @@ function fitList(list, items) {
 }
 
 function renderControls() {
-  const offline = state.phase === 'offline', free = !state.script;
-  const done = !free && state.nextLine >= state.script.length;
-  $('lines').hidden = free;
-  if (!free) $('lines').replaceChildren(...state.script.map((line, i) => {
-    if (i !== state.nextLine) return h('li', { className: i < state.nextLine ? 'done' : '' }, h('span', { textContent: line.text }));
-    const say = h('button', { type: 'button', className: 'say', disabled: state.phase !== 'listening' || offline,
-                              onclick: () => speakLine(i) }, h('b', { textContent: 'Say' }), `“${line.text}”`);
-    return h('li', { className: 'next' }, say);
-  }));
-  $('free').hidden = !free || offline;
-  $('mic').hidden = !recognition;
-  $('mic').textContent = state.mic ? 'Microphone on' : 'Microphone off';
-  $('again').hidden = !(done || offline);
+  const offline = state.phase === 'offline';
+  $('ask').hidden = offline;
+  $('ask').placeholder = state.mic ? 'Speak, or type here' : 'Type here, Enter sends';
+  $('mic').hidden = offline || !recognition;
+  $('mic').textContent = state.mic ? 'Mic on' : 'Mic off';
+  $('again').hidden = !offline;
   const controls = focusable();
   if (controls.length && !controls.includes(document.activeElement)) controls[0].focus({ preventScroll: true });
 }
@@ -319,22 +282,16 @@ function focusable() {
 
 let ws;
 
-function send(text, utterance_id = null) {
-  if (state.phase !== 'listening') return;
-  ws.send(JSON.stringify({ type: 'utterance', utterance_id, text }));
+// False when the assistant is busy: the text was not sent.
+function send(text) {
+  if (state.phase !== 'listening') return false;
+  ws.send(JSON.stringify({ type: 'utterance', text }));
   Object.assign(state, { phase: 'thinking', heard: text, reply: '' });
   render();
-}
-
-function speakLine(i) {
-  const line = state.script[i];
-  if (state.phase !== 'listening') return;
-  state.nextLine = i + 1;
-  send(line.text, line.utterance_id);
+  return true;
 }
 
 const handlers = {
-  hello(m) { state.script = m.script; state.nextLine = 0; },
   listening() { state.phase = 'listening'; },
   capture(m) { capture(m.frame_id); },
   say(m) { speak(m.text); },
@@ -396,26 +353,44 @@ const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = Recognition ? new Recognition() : null;
 if (recognition) {
   recognition.continuous = true;
+  recognition.interimResults = true;
   recognition.lang = new URLSearchParams(location.search).get('lang') || navigator.language;
   recognition.onresult = e => {
+    let hearing = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const text = e.results[i][0].transcript.trim();
-      if (e.results[i].isFinal && text) send(text);
+      if (!e.results[i].isFinal) hearing += (hearing && text ? ' ' : '') + text;
+      else if (text && !send(text)) return showHeard(text, true);   // assistant busy: Enter sends it later
     }
+    showHeard(hearing, false);
   };
-  recognition.onend = () => { if (micWanted()) startMic(); };
+  recognition.onend = () => { showHeard('', false); if (micWanted()) startMic(); };
   recognition.onerror = e => { if (e.error.includes('not-allowed')) { state.mic = false; render(); } };
 }
 function micWanted() { return state.mic && !state.speaking && state.phase === 'listening'; }
 function startMic() { try { recognition.start(); } catch { /* already running */ } }
 function syncMic() { if (recognition) micWanted() ? startMic() : recognition.stop(); }
 
+// The bar is one line with two sources. What the microphone hears is written into it while it is being
+// said, and sent when the sentence ends. What is typed stays until Enter, and is never overwritten by
+// the microphone.
+let dictating = false;        // the text in the bar came from the microphone and is still being said
+
+function showHeard(text, keep) {
+  const ask = $('ask');
+  if (ask.value && !dictating) return;                   // typed text is in the bar: leave it alone
+  ask.value = text;
+  dictating = !keep && !!text;
+  ask.classList.toggle('dictating', dictating);
+}
+
 function submitAsk() {
   const text = $('ask').value.trim();
-  if (!text || state.phase !== 'listening') return;      // keep the text until the assistant is free
+  if (dictating || !text || state.phase !== 'listening') return;   // keep the text until the assistant is free
   $('ask').value = '';
   send(text);
 }
+$('ask').addEventListener('input', () => { dictating = false; $('ask').classList.remove('dictating'); });
 // Typed text, or on the glasses the system composer (handwriting or dictation), arrives as `change`.
 $('ask').addEventListener('change', submitAsk);
 $('mic').addEventListener('click', () => { state.mic = !state.mic; render(); });

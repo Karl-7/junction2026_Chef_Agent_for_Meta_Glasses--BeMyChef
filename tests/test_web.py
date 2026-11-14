@@ -5,8 +5,12 @@ import threading
 import pytest
 from starlette.testclient import TestClient
 
+from cooking.orchestrator import Session
+from cooking.replay import ReplayKitchen
 from cooking.web import WebDevice
-from scripts.serve_glasses import create_app, scripted
+from kitchen.kitchen import Kitchen
+from policies.scripted import Scripted
+from scripts.serve_glasses import create_app
 
 JPEG = b"\xff\xd8 not really a picture \xff\xd9"
 
@@ -36,12 +40,18 @@ def test_closing_the_page_ends_the_wait_for_speech():
     assert got == [None]
 
 
-class Page:
-    """What ui/glasses.html does on the wire: answers capture requests, collects everything else."""
+def scripted(scenario):
+    """No model behind the page: the scenario's reference policy and its recipes."""
+    return lambda device: (Session(device, ReplayKitchen(Kitchen(scenario).call)), Scripted(scenario))
 
-    def __init__(self, ws):
+
+class Page:
+    """What ui/glasses.html does on the wire: answers capture requests, collects everything else.
+    It says the scenario's lines, with their ids, which is what the reference policy answers to."""
+
+    def __init__(self, ws, scenario):
         self.ws = ws
-        self.script = ws.receive_json()["script"]
+        self.lines = [{"utterance_id": u["id"], "text": u["text"]} for u in scenario["utterances"]]
         self.until_listening()
 
     def until_listening(self):
@@ -54,14 +64,14 @@ class Page:
         return seen
 
     def speak(self, i):
-        self.ws.send_json({"type": "utterance", **self.script[i]})
+        self.ws.send_json({"type": "utterance", **self.lines[i]})
         return self.until_listening()
 
 
 @pytest.fixture
 def page(scenario):
     with TestClient(create_app(scripted(scenario))).websocket_connect("/ws") as ws:
-        yield Page(ws)
+        yield Page(ws, scenario)
 
 
 def test_page_is_served(scenario):
@@ -70,11 +80,7 @@ def test_page_is_served(scenario):
     assert client.get("/icon.png").content.startswith(b"\x89PNG")
 
 
-def test_script_sent_to_the_page_carries_no_annotations(page, scenario):
-    assert page.script == [{"utterance_id": u["id"], "text": u["text"]} for u in scenario["utterances"]]
-
-
-def test_whole_scripted_session_through_the_page(page):
+def test_whole_session_through_the_page(page):
     types = lambda messages: [m["type"] for m in messages]
 
     start = page.speak(0)
