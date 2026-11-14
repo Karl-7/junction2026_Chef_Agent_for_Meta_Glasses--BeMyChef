@@ -81,8 +81,7 @@ def test_whole_scripted_session_through_the_page(page):
     assert types(start) == ["capture", "say", "recipe", "say"]
     assert start[1]["text"] == "Let me search."
     assert start[2]["recipe"] == {"title": "Quick beef stir-fry", "url": "https://recipes.example/beef-stir-fry",
-                                  "ingredients": ["beef", "soy sauce", "garlic", "spring onion"],
-                                  "steps": "Sear the beef, add garlic, season with soy sauce."}
+                                  "image": None, "ingredients": ["beef", "soy sauce", "garlic", "spring onion"]}
 
     assert [m["recipe"]["title"] for m in page.speak(1) if m["type"] == "recipe"] == ["Beef and broccoli"]
     assert [m["recipe"]["title"] for m in page.speak(2) if m["type"] == "recipe"] == ["Home-style beef stir-fry"]

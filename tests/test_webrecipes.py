@@ -1,31 +1,36 @@
 """Recipe search from canned pages (no network)."""
 import json
+import threading
+import time
 import urllib.error
 
-from cooking.webrecipes import WebRecipes, search_results, structured_recipe
+import cooking.webrecipes as module
+from cooking.webrecipes import WebRecipes, duckduckgo, search_results, structured_recipe
 
 
-def result(url, title, snippet):
-    return (f'<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg={url.replace(":", "%3A").replace("/", "%2F")}&amp;rut=x">'
-            f'{title}</a><a class="result__snippet" href="x">{snippet}</a>')
+def result(url):
+    return (f'<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg='
+            f'{url.replace(":", "%3A").replace("/", "%2F")}&amp;rut=x">A <b>title</b></a>')
 
 
 def ld(node):
-    return f'<html><script type="application/ld+json">{json.dumps(node)}</script><body><nav>menu</nav><p>Story.</p></body></html>'
+    return f'<html><script type="application/ld+json">{json.dumps(node)}</script><body><p>Story.</p></body></html>'
 
 
-RECIPE = {"@type": "Recipe", "name": "Beef stir-fry", "recipeIngredient": ["300 g beef", "2 tbsp soy sauce"],
+RECIPE = {"@type": "Recipe", "name": "Beef stir-fry", "image": ["https://a.example/wok.jpg", "https://a.example/2.jpg"],
+          "recipeIngredient": ["300 g beef", "2 tbsp soy sauce"],
           "recipeInstructions": [{"@type": "HowToStep", "text": "Sear the beef."},
                                  {"@type": "HowToSection", "itemListElement": [{"@type": "HowToStep", "text": "Add soy sauce."}]}]}
 PAGES = {
     "https://a.example/stir-fry": ld({"@graph": [{"@type": "WebSite"}, RECIPE]}),
-    "https://b.example/blog": "<html><body><nav>menu</nav><p>Fry the beef, then add sauce.</p><script>x()</script></body></html>",
+    "https://b.example/blog": "<html><body><p>Fry the beef, then add sauce.</p></body></html>",
     "https://d.example/second": ld([{**RECIPE, "@type": ["Recipe", "NewsArticle"], "name": "Second <b>stir-fry</b>",
+                                     "image": {"@type": "ImageObject", "url": "https://d.example/pan.jpg"},
                                      "recipeInstructions": "Fry everything."}]),
+    "https://e.example/no-picture": ld({**RECIPE, "image": None}),
 }
-RESULTS = "".join([result("https://b.example/blog", "A blog <b>post</b>", "Fry the beef &amp; sauce."),
-                   result("https://a.example/stir-fry", "Stir-fry | A", "snippet a"),
-                   result("https://c.example/gone", "Gone", "snippet c")])
+RESULTS = "".join(map(result, ["https://b.example/blog", "https://e.example/no-picture",
+                               "https://a.example/stir-fry", "https://c.example/gone"]))
 
 
 class Web:
@@ -42,57 +47,52 @@ class Web:
 
 
 def test_search_results_are_read_in_rank_order():
-    assert search_results(RESULTS)[0] == {"url": "https://b.example/blog", "title": "A blog post",
-                                          "snippet": "Fry the beef & sauce."}
+    assert search_results(RESULTS)[:2] == ["https://b.example/blog", "https://e.example/no-picture"]
 
 
-def test_structured_recipe_reads_graphs_type_lists_sections_and_plain_text():
-    assert structured_recipe(PAGES["https://a.example/stir-fry"])["steps"] == ["Sear the beef.", "Add soy sauce."]
+def test_structured_recipe_reads_graphs_type_lists_sections_and_image_forms():
+    first = structured_recipe(PAGES["https://a.example/stir-fry"])
+    assert first["steps"] == ["Sear the beef.", "Add soy sauce."] and first["image"] == "https://a.example/wok.jpg"
     second = structured_recipe(PAGES["https://d.example/second"])
-    assert second["title"] == "Second stir-fry" and second["steps"] == ["Fry everything."]
+    assert second == {"title": "Second stir-fry", "image": "https://d.example/pan.jpg",
+                      "ingredients": ["300 g beef", "2 tbsp soy sauce"], "steps": ["Fry everything."]}
     assert structured_recipe(PAGES["https://b.example/blog"]) is None
 
 
-def test_structured_pages_come_first_and_unreadable_pages_are_dropped():
+def test_only_pages_with_a_picture_and_an_ingredient_list_are_candidates():
     web = Web()
-    found = WebRecipes(web).search("beef stir-fry", [])
+    found = WebRecipes(duckduckgo(web), web).search("beef stir-fry", [])
     assert "beef%20stir-fry%20recipe" in web.fetched[0]
-    assert [c["url"] for c in found] == ["https://a.example/stir-fry", "https://b.example/blog"]
-    assert found[0] == {"recipe_id": "w2", "url": "https://a.example/stir-fry", "title": "Beef stir-fry",
-                        "ingredients": ["300 g beef", "2 tbsp soy sauce"], "steps": "Sear the beef. Add soy sauce."}
-    assert found[1]["ingredients"] == [] and found[1]["steps"] == "Fry the beef & sauce."
+    assert found == [{"recipe_id": "w1", "url": "https://a.example/stir-fry", "title": "Beef stir-fry",
+                      "image": "https://a.example/wok.jpg", "ingredients": ["300 g beef", "2 tbsp soy sauce"],
+                      "steps": "Sear the beef. Add soy sauce."}]
 
 
-def test_loaded_text_is_the_recipe_not_the_page_chrome():
-    recipes = WebRecipes(Web())
-    structured, plain = recipes.search("beef stir-fry", [])
-    assert recipes.fetch(structured["recipe_id"]) == \
+def test_loaded_text_is_the_recipe_itself():
+    web = Web()
+    recipes = WebRecipes(duckduckgo(web), web)
+    (found,) = recipes.search("beef stir-fry", [])
+    assert recipes.fetch(found["recipe_id"]) == \
         "Beef stir-fry\n\nIngredients:\n300 g beef\n2 tbsp soy sauce\n\nSteps:\n1. Sear the beef.\n2. Add soy sauce."
-    assert recipes.fetch(plain["recipe_id"]) == "Fry the beef, then add sauce."
 
 
 def test_second_search_fetches_only_pages_not_tried_before():
     web = Web()
-    recipes = WebRecipes(web)
+    recipes = WebRecipes(duckduckgo(web), web)
     recipes.search("beef stir-fry", [])
-    web.results += result("https://d.example/second", "Second", "snippet d")
+    web.results += result("https://d.example/second")
     web.fetched.clear()
     assert [c["url"] for c in recipes.search("beef stir-fry", [])] == ["https://d.example/second"]
-    assert web.fetched[1:] == ["https://d.example/second"]      # the gone page is not retried either
+    assert web.fetched[1:] == ["https://d.example/second"]      # rejected and unreadable pages are not retried
 
 
 def test_chinese_dish_is_searched_in_chinese():
     web = Web("")
-    assert WebRecipes(web).search("麻婆豆腐", []) == []
+    assert WebRecipes(duckduckgo(web), web).search("麻婆豆腐", []) == []
     assert "%E5%81%9A%E6%B3%95" in web.fetched[0]               # 做法
 
 
 def test_a_site_that_never_answers_does_not_hold_up_the_search(monkeypatch):
-    import threading
-    import time
-
-    import cooking.webrecipes as module
-
     monkeypatch.setattr(module, "PAGE_TIMEOUT_S", 0.2)
     release = threading.Event()
 
@@ -102,7 +102,35 @@ def test_a_site_that_never_answers_does_not_hold_up_the_search(monkeypatch):
         return Web()(url)
 
     started = time.monotonic()
-    found = WebRecipes(get).search("beef stir-fry", [])
+    found = WebRecipes(duckduckgo(get), get).search("beef stir-fry", [])
     release.set()
     assert time.monotonic() - started < 2
     assert [c["url"] for c in found] == ["https://a.example/stir-fry"]
+
+
+OG_PAGE = '<html><head><meta content="https://f.example/dish.jpg" property="og:image"></head><body>做法见下</body></html>'
+
+
+def test_a_page_without_structured_data_uses_the_finders_reading_and_the_share_picture():
+    pages = {"https://f.example/mapo": OG_PAGE, "https://a.example/stir-fry": PAGES["https://a.example/stir-fry"],
+             "https://g.example/no-picture": "<html><body>plain</body></html>"}
+    read = {"title": "麻婆豆腐", "ingredients": ["豆腐 400克", "牛肉末 100克"], "steps": ["豆腐切块焯水。", "炒香豆瓣酱。"]}
+    find = lambda dish, skip: [{"url": "https://f.example/mapo", **read},
+                               {"url": "https://a.example/stir-fry", "title": "Wrong", "ingredients": ["wrong"], "steps": ["wrong"]},
+                               {"url": "https://g.example/no-picture", **read}]
+    recipes = WebRecipes(find, pages.__getitem__)
+    mapo, stir_fry = recipes.search("麻婆豆腐", [])
+    assert mapo == {"recipe_id": "w1", "url": "https://f.example/mapo", "title": "麻婆豆腐",
+                    "image": "https://f.example/dish.jpg", "ingredients": ["豆腐 400克", "牛肉末 100克"],
+                    "steps": "豆腐切块焯水。 炒香豆瓣酱。"}
+    assert recipes.fetch("w1").endswith("Steps:\n1. 豆腐切块焯水。\n2. 炒香豆瓣酱。")
+    assert stir_fry["title"] == "Beef stir-fry" and stir_fry["ingredients"] == ["300 g beef", "2 tbsp soy sauce"]
+
+
+def test_finder_is_told_which_pages_were_already_tried():
+    asked = []
+    web = Web()
+    recipes = WebRecipes(lambda dish, skip: asked.append(skip) or [{"url": "https://a.example/stir-fry/"}], web)
+    recipes.search("beef stir-fry", [])
+    assert recipes.search("beef stir-fry", []) == []
+    assert asked == [[], ["https://a.example/stir-fry"]]

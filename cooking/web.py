@@ -15,7 +15,7 @@ import queue
 from typing import Callable
 
 FRAME_TIMEOUT_S = 5.0
-RECIPE_FIELDS = ("title", "url", "ingredients", "steps")
+RECIPE_FIELDS = ("title", "url", "image", "ingredients")    # what the display shows
 
 
 class WebDevice:
@@ -59,7 +59,7 @@ class WebDevice:
         self._send({"type": "say", "text": text})
 
     def show_recipe(self, recipe):
-        self._send({"type": "recipe", "recipe": {k: recipe[k] for k in RECIPE_FIELDS}})
+        self._send({"type": "recipe", "recipe": {k: recipe.get(k) for k in RECIPE_FIELDS}})
 
     def hide_recipe(self):
         self._send({"type": "hide_recipe"})

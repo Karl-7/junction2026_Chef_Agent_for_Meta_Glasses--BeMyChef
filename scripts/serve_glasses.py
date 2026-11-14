@@ -1,6 +1,6 @@
 """Serve the glasses page and run the assistant against it, without glasses.
 
-    python -m scripts.serve_glasses                    # Gemini brain, live web recipe search
+    python -m scripts.serve_glasses                    # Gemini talks, Claude searches for recipes
     python -m scripts.serve_glasses --brain scripted   # no model: the scenario's lines and recipes
 
 Then open http://localhost:8765 in Chrome. The page is the device: display, speech, and the
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import threading
 import time
 from pathlib import Path
@@ -22,11 +23,12 @@ from starlette.responses import FileResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from cooking import claude_search
 from cooking.gemini import Gemini, GeminiBrain
 from cooking.orchestrator import Session
 from cooking.replay import ReplayKitchen
 from cooking.web import WebDevice
-from cooking.webrecipes import WebRecipes
+from cooking.webrecipes import WebRecipes, duckduckgo
 from kitchen.kitchen import Kitchen
 from policies.scripted import Scripted
 
@@ -42,7 +44,14 @@ def scripted(scenario: dict) -> Callable:
 
 
 def gemini(log_dir: Path) -> Callable:
-    """Gemini answers whatever the user says or types; recipes come from a live web search."""
+    """Gemini answers whatever the user says or types. Claude finds the recipe pages; if Claude
+    cannot be used when the server starts, a keyless web search finds them instead."""
+    api = claude_search.client()
+    model = claude_search.ClaudeSearch(api).model
+    problem = claude_search.unavailable(api, model)
+    if problem:
+        print(f"Claude search is off ({problem}). Recipes come from a plain web search instead.", file=sys.stderr)
+
     def start(device):
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = (log_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-{id(device):x}.jsonl").open("a")
@@ -51,7 +60,8 @@ def gemini(log_dir: Path) -> Callable:
             log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
             log_file.flush()
 
-        return Session(device, WebRecipes()), GeminiBrain(Gemini(log=log)), None
+        find = duckduckgo() if problem else claude_search.ClaudeSearch(api, model, log)
+        return Session(device, WebRecipes(find)), GeminiBrain(Gemini(log=log)), None
     return start
 
 
