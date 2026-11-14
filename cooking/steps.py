@@ -23,7 +23,7 @@ _NOT_NAMES = {
     "bunch", "can", "cans", "stalk", "stalks", "sprig", "sprigs", "dash", "a", "an", "the", "of", "and", "or",
     "to", "for", "about", "taste", "optional", "plus", "more", "fresh", "large", "small", "medium", "sliced",
     "chopped", "minced", "diced", "grated", "crushed", "finely", "thinly", "roughly", "peeled", "cut", "into",
-    "light", "dark", "extra", "virgin", "ground", "whole", "cooked", "raw", "boneless", "skinless",
+    "light", "dark", "extra", "virgin", "neutral", "vegetable", "ground", "whole", "cooked", "raw", "boneless", "skinless",
 }
 # Names too general to identify an ingredient alone: "sauce" must not match soy sauce to oyster sauce.
 _GENERIC = {"sauce", "oil", "powder", "paste", "stock", "wine", "vinegar", "seed", "leave", "flake", "juice",
