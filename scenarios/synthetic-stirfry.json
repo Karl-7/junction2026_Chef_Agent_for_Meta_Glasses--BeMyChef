@@ -1,0 +1,41 @@
+{
+  "id": "synthetic-stirfry",
+  "note": "Hand-written scenario with no footage: exercises the flow, highlight and timing checks. Boxes are [ymin, xmin, ymax, xmax] in 0..1000.",
+  "footage": null,
+  "search_page_size": 2,
+  "recipes": [
+    {"recipe_id": "r1", "title": "Quick beef stir-fry", "url": "https://recipes.example/beef-stir-fry",
+     "ingredients": ["beef", "soy sauce", "garlic", "spring onion"],
+     "steps": "Sear the beef, add garlic, season with soy sauce.",
+     "page_text": "Quick beef stir-fry. 1. Sear the sliced beef on high heat until browned. 2. Add garlic. 3. Add a spoonful of soy sauce. 4. Finish with spring onion."},
+    {"recipe_id": "r1-ad", "same_as": "r1", "title": "Quick beef stir-fry", "url": "https://Recipes.example/beef-stir-fry/?utm_source=search",
+     "ingredients": ["beef", "soy sauce", "garlic", "spring onion"],
+     "steps": "Sear the beef, add garlic, season with soy sauce.",
+     "page_text": "Quick beef stir-fry. 1. Sear the sliced beef on high heat until browned. 2. Add garlic. 3. Add a spoonful of soy sauce. 4. Finish with spring onion."},
+    {"recipe_id": "r2", "title": "Beef and broccoli", "url": "https://kitchen.example/beef-broccoli",
+     "ingredients": ["beef", "broccoli", "oyster sauce"],
+     "steps": "Blanch the broccoli, sear the beef, toss with oyster sauce.",
+     "page_text": "Beef and broccoli. 1. Blanch the broccoli. 2. Sear the beef. 3. Toss with oyster sauce."},
+    {"recipe_id": "r3", "title": "Home-style beef stir-fry", "url": "https://home.example/stir-fry",
+     "ingredients": ["beef", "soy sauce", "cooking wine", "ginger"],
+     "steps": "Fry the ginger, cook the beef through, add soy sauce, then cooking wine.",
+     "page_text": "Home-style beef stir-fry. 1. Fry the ginger in oil. 2. Add the beef and cook until no pink remains. 3. Add a spoonful of soy sauce. 4. Add the cooking wine and stir for 30 seconds."}
+  ],
+  "utterances": [
+    {"id": "u1", "t": 4.0, "kind": "start", "text": "I'm going to cook this dish now, take a look", "dish": "beef stir-fry"},
+    {"id": "u2", "t": 15.0, "kind": "reject", "text": "No"},
+    {"id": "u3", "t": 24.0, "kind": "reject", "text": "No"},
+    {"id": "u4", "t": 31.0, "kind": "accept", "text": "Yes"},
+    {"id": "u5", "t": 70.0, "kind": "unaddressed", "text": "Can you pass me the salt?"},
+    {"id": "u6", "t": 95.0, "kind": "help", "text": "Gemini, what do I do next?",
+     "facts": ["the meat is not cooked yet", "wait another minute or two", "then add a spoonful of soy sauce"],
+     "reference_answer": "The meat isn't cooked yet. Give it another minute or two, then add a spoonful of soy sauce."},
+    {"id": "u7", "t": 160.0, "kind": "help", "text": "Gemini, which of these small bowls should I pour into the pan?",
+     "objects": [
+       {"name": "soy sauce bowl", "box": [600, 100, 760, 260]},
+       {"name": "cooking wine bowl", "box": [600, 300, 760, 460]},
+       {"name": "pan", "box": [200, 500, 700, 950]}
+     ],
+     "target": "soy sauce bowl", "reference_answer": "This one."}
+  ]
+}
