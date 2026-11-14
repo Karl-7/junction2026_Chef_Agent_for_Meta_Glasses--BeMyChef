@@ -2,3 +2,11 @@ mcp==1.26.0
 pytest
 websockets
 anthropic
+fastapi
+uvicorn
+python-dotenv
+python-multipart
+twilio
+google-genai
+yt-dlp
+pydantic
