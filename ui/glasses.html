@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+<script>
+// The glasses lay the page out on their 600x600 display. A phone lays it out at its own size instead:
+// held upright, a 600px-wide page would be shrunk to fit and leave everything too small to read.
+if (screen.width !== 600 || screen.height !== 600)
+  document.querySelector('meta[name=viewport]').content = 'width=device-width, initial-scale=1.0, user-scalable=no';
+</script>
 <meta name="description" content="Hands-free cooking assistant for Meta Ray-Ban Display glasses: step-by-step recipes you can follow by voice while you cook.">
 <meta name="mrbd-web-app-capable" content="yes">
 <title>Cooking Assistant</title>
@@ -21,6 +27,8 @@
  * Where a camera is available (a phone or computer, not the glasses), it fills the whole page and the display
  * is composited over it (mix-blend-mode: screen, which is how an additive display works). On a computer
  * wider than the glasses the display keeps its 600x600 size in the middle, with the bar along its bottom edge.
+ * On a phone the display is the whole screen and the type is smaller: a phone is held close and is sharp.
+ * Held sideways, the text keeps to the left half and the right half is left to the camera.
  */
 :root {
   --ink: #ffffff; --dim: #8f8f8f; --faint: #3a3a3a; --accent: #5ce1e6;
@@ -112,6 +120,40 @@ button, input { font: inherit; color: inherit; }
   #stage { position: relative; inset: auto; width: 600px; height: 600px; }
   .note { display: block; position: relative; margin: 16px 0 0; text-align: center; font-size: 18px; color: var(--dim); }
   .control:hover { background: rgb(255 255 255 / 0.05); }
+}
+
+/* ---- on a phone ---------------------------------------------------------------------------- */
+/* Narrower than the glasses (upright) or shorter than them (sideways). */
+@media (max-width: 599px), (max-height: 599px) {
+  :root { --pad: 20px; }
+  #hud, #wake { padding-bottom: 76px; }
+  #wake { gap: 6px; font-size: 16px; }
+  #wake b { font-size: 26px; }
+  #wake small { margin-top: 12px; font-size: 13px; }
+  .top { min-height: 22px; font-size: 14px; }
+  .progress i { width: 14px; }
+  .idle h1 { font-size: 26px; }
+  .idle p { font-size: 16px; }
+  .step { padding-top: 16px; }
+  .step .text { font-size: 28px; }
+  .uses { margin-top: 16px; font-size: 16px; }
+  .recipe .photo { height: min(190px, 26vh); }
+  .recipe h1 { margin-top: 12px; font-size: 22px; }
+  .recipe .about { font-size: 14px; }
+  .recipe ul { margin-top: 10px; column-gap: 16px; font-size: 15px; }
+  .box span { font-size: 14px; }
+  #caption { min-height: 48px; }
+  .heard, .hint { font-size: 14px; }
+  .reply { font-size: 18px; }
+  #controls { bottom: 12px; }
+  .control, #ask { height: 48px; padding: 0 12px; font-size: 16px; }   /* under 16px, iOS zooms in on the focused input */
+}
+/* Sideways: the text keeps to the left half. */
+@media (max-height: 599px) and (orientation: landscape) {
+  #hud, #wake { right: 50%; }
+  #controls { right: calc(50% + var(--pad)); }
+  .step { padding-top: 8px; }
+  .recipe { padding-top: 4px; }
 }
 
 @media (prefers-reduced-motion: reduce) { .enter, #wake { animation: none; } }
@@ -217,7 +259,7 @@ function stepView(step) {
   const text = h('p', { className: 'text', textContent: step.text.replace(/(\w)-(\w)/g, '$1\u2011$2') });
   const uses = step.ingredients.length ? h('ul', { className: 'uses' },
     ...step.ingredients.map(i => h('li', { textContent: i }))) : null;
-  return { className: 'step', children: [text, uses], after: () => fitText(text, 36, 26) };
+  return { className: 'step', children: [text, uses], after: () => fitText(text) };
 }
 
 function recipeView(recipe) {
@@ -264,10 +306,12 @@ function renderCaption() {
   $('caption').replaceChildren(...lines.filter(Boolean));
 }
 
-// Shrink long text step by step until it fits its box.
-function fitText(node, max, min) {
-  let size = max;
-  node.style.fontSize = `${size}px`;
+// Shrink long text step by step until it fits its box, from the size the stylesheet gives it (36px on the
+// glasses, smaller on a phone) down to about 70% of that.
+function fitText(node) {
+  node.style.fontSize = '';
+  let size = parseFloat(getComputedStyle(node).fontSize);
+  const min = Math.round(size * 0.72);
   while (node.scrollHeight > node.clientHeight + 1 && size > min) node.style.fontSize = `${size -= 2}px`;
 }
 
@@ -493,6 +537,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
+addEventListener('resize', () => fitView?.());   // a phone turned on its side has a different amount of room
 syncHistory();               // a reload starts a new session, on the idle screen
 render();
 startCamera();
