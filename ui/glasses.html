@@ -452,6 +452,7 @@ function voice(text) {
   u.onend = u.onerror = () => { utterances.delete(u); speechMayBeOver(); };
   utterances.add(u);
   state.speaking = true;
+  note('voice: ' + text.slice(0, 24));
   speechSynthesis.speak(u);
   watchSpeech();
 }
@@ -463,7 +464,7 @@ const utterances = new Set();      // kept from the garbage collector, which wou
 let speechWatch = null;
 function speechMayBeOver() {
   state.speaking = speechSynthesis.speaking || speechSynthesis.pending;
-  if (!state.speaking) { clearInterval(speechWatch); speechWatch = null; utterances.clear(); }
+  if (!state.speaking) { clearInterval(speechWatch); speechWatch = null; utterances.clear(); note('voice over'); }
   syncMic();
 }
 function watchSpeech() {
@@ -524,16 +525,43 @@ if (recognition) {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const text = e.results[i][0].transcript.trim();
       if (!e.results[i].isFinal) hearing += (hearing && text ? ' ' : '') + text;
-      else if (text && !send(text)) return showHeard(text, true);   // assistant busy: Enter sends it later
+      else if (text && !(note('heard: ' + text.slice(0, 24)), send(text))) return showHeard(text, true);   // assistant busy: Enter sends it later
     }
     showHeard(hearing, false);
   };
-  recognition.onend = () => { showHeard('', false); if (micWanted()) startMic(); };
-  recognition.onerror = e => { if (e.error.includes('not-allowed')) { state.mic = false; render(); } };
+  recognition.onstart = () => { micOpen = micHasOpened = true; refused = 0; note('mic open'); };
+  recognition.onend = () => { micOpen = false; note('mic closed'); showHeard('', false); if (micWanted()) startMic(); };
+  recognition.onerror = e => {
+    note('mic error: ' + e.error);
+    // Refused before it ever opened: the user said no. Later, a phone refuses for a moment after it has
+    // spoken, and the microphone is simply tried again.
+    if (e.error.includes('not-allowed') && !micHasOpened) { state.mic = false; render(); }
+  };
+  // A phone does not always reopen the microphone when asked, nor say that it closed: keep asking.
+  setInterval(() => {
+    if (!micWanted() || micOpen) return void (refused = 0);
+    if (++refused % 4 === 0) { note('mic reset'); try { recognition.abort(); } catch { /* not running */ } }
+    startMic();
+  }, 1000);
 }
+let micOpen = false, micHasOpened = false, refused = 0;
 function micWanted() { return cameraSettled && state.mic && !state.speaking && state.phase === 'listening'; }
-function startMic() { try { recognition.start(); } catch { /* already running */ } }
+function startMic() { try { recognition.start(); } catch (e) { note('mic start: ' + e.name); } }
 function syncMic() { if (recognition) micWanted() ? startMic() : recognition.stop(); }
+
+// ?debug in the address shows what the microphone and the voice are doing, for a phone with no console.
+const notes = [];
+function note(text) {
+  if (!new URLSearchParams(location.search).has('debug')) return;
+  notes.push(new Date().toTimeString().slice(3, 8) + ' ' + text);
+  if (notes.length > 8) notes.shift();
+  let box = $('debug');
+  if (!box) {
+    box = document.body.appendChild(h('pre', { id: 'debug' }));
+    box.style.cssText = 'position:fixed;top:0;left:0;margin:0;padding:6px;z-index:9;font:11px/1.3 monospace;color:#0f0;background:#000a;pointer-events:none';
+  }
+  box.textContent = `phase=${state.phase} speaking=${state.speaking} mic=${state.mic} open=${micOpen} tapped=${cameraSettled}\n` + notes.join('\n');
+}
 
 // The bar is one line with two sources. What the microphone hears is written into it while it is being
 // said, and sent when the sentence ends. What is typed stays until Enter, and is never overwritten by
