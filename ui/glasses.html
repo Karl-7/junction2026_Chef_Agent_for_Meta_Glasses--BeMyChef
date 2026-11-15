@@ -460,19 +460,19 @@ function capture(frame_id) {
 }
 
 // The glasses camera is not available to web apps; on a computer the webcam stands in for it.
-// A phone shows one permission question at a time, so they are asked in turn: the camera, then the
-// microphone, and only then speech recognition (which on an iPhone has a question of its own). The camera
-// is asked alone: asked together with the microphone, Chrome on an iPhone gave no camera at all.
-// The microphone stream is closed at once: only the permission is wanted, recognition opens its own.
+// A phone shows one permission question at a time, and a second one replaces the first. So the microphone
+// is not asked for until the camera picture is really showing: in Chrome on an iPhone the microphone
+// question came up while the camera's was still unanswered. A tap on the page also counts, if no picture ever comes.
 let cameraSettled = false;
 async function startCamera() {
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
     video.classList.add('live');
+    const showing = new Promise(done => video.videoWidth ? done() : video.addEventListener('playing', done, { once: true }));
+    const tapped = new Promise(done => addEventListener('pointerdown', done, { once: true }));
+    await Promise.race([showing, tapped]);
+    await new Promise(done => setTimeout(done, 800));   // the camera question is still sliding away
   } catch { /* no camera: frames go out empty and the preview stays dark */ }
-  try {
-    (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(track => track.stop());
-  } catch { /* no microphone, or refused: recognition reports it */ }
   cameraSettled = true;
   syncMic();
 }
