@@ -1,19 +1,15 @@
-# fly.toml app configuration file generated for junction2026-meta-glasses-cooking-assistant--bemychef on 2026-11-15T17:45:01Z
-#
-# See https://docs.fly.io/reference/configuration for information about how to use this file.
-#
+# Fly.io: one machine runs the glasses server and the Telegram bot (see Dockerfile).
+# Keys are Fly secrets, not in this file: GEMINI_API_KEY, TELEGRAM_BOT_TOKEN.
 
 app = 'junction2026-meta-glasses-cooking-assistant--bemychef'
 primary_region = 'arn'
 
 [build]
-[[mounts]]
-  source = 'saved_recipes'
-  destination = '/app/saved_recipes'
 
 [http_service]
-  internal_port = 8080
+  internal_port = 8765            # the port scripts/start.sh serves on
   force_https = true
+  # Always on: the Telegram bot polls for messages, and a cooking session lives in the server's memory.
   auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
@@ -28,4 +24,3 @@ primary_region = 'arn'
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
