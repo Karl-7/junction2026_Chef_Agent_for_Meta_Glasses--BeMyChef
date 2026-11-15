@@ -17,7 +17,7 @@ We built this for home cooks following a recipe they don't know by heart. It hel
 
 ## What it does
 
-![Four screens on the glasses: a recipe to confirm, a cooking step, an answer to a question, and a highlighted object in a snapshot](docs/images/screens.png)
+![Four screens on the glasses: a recipe to confirm, a cooking step, an answer to a question, and a highlighted object in a snapshot](docs/images/screens2.jpeg)
 
 1. **Pick a recipe.** Look at your ingredients and say what you're making. The assistant searches recipe sites, shows a photo and the ingredients, and asks if that's the one. Say "no" and it shows another.
 2. **Cook one step at a time.** The display shows the current step and only the ingredients that step uses, with amounts. Say "next" or "back" to move. Those two words work without the wake word and never wait for the model, so the step changes at once.
@@ -84,7 +84,7 @@ Code decides everything code can decide, and the model handles language and visi
 | `cooking/orchestrator.py` | The session state machine and the rules the model can't break. |
 | `cooking/steps.py` | "Next" and "back" commands, and which ingredients each step uses. |
 | `cooking/gemini.py` | Gemini as the brain, acting only through tools. |
-| `cooking/webrecipes.py`, `cooking/claude_search.py` | Recipe search and page reading. |
+| `cooking/webrecipes.py`, `cooking/page_reader.py` | Recipe search and page reading. |
 | `cooking/chat.py`, `Telegram_bot.py` | The Telegram bot and the text it sends. |
 | `kitchen/`, `scripts/build_tasks.py` | Replay scenarios and scoring for evaluation. |
 
@@ -95,7 +95,6 @@ You need Python 3 (we use 3.13), [uv](https://docs.astral.sh/uv/) and Chrome.
 ```bash
 uv venv && uv pip install -r requirements.txt
 export GEMINI_API_KEY=...     # required
-export CLAUDE_API_KEY=...     # optional: better recipe search; without it a plain web search is used
 .venv/bin/python -m scripts.serve_glasses
 ```
 

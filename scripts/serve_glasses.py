@@ -1,6 +1,6 @@
 """Serve the glasses page and run the assistant against it, without glasses.
 
-    python -m scripts.serve_glasses      # Gemini talks, Claude searches for recipes
+    python -m scripts.serve_glasses      # Gemini talks and reads the recipe pages a web search finds
 
 Then open http://localhost:8765 in Chrome. The page is the device: display, speech, and the
 computer's webcam and microphone standing in for the glasses'.
@@ -24,9 +24,9 @@ from starlette.responses import FileResponse, Response
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from cooking import claude_search
 from cooking.gemini import Gemini, GeminiBrain
 from cooking.orchestrator import Session
+from cooking.page_reader import GeminiReader
 from cooking.saved import SavedRecipes
 from cooking.web import WebDevice
 from cooking.webrecipes import WebRecipes, duckduckgo
@@ -35,14 +35,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def gemini(log_dir: Path) -> Callable:
-    """Gemini answers whatever the user says or types. Claude finds the recipe pages; if Claude
-    cannot be used when the server starts, a keyless web search finds them instead."""
-    api = claude_search.client()
-    model = claude_search.ClaudeSearch(api).model
-    problem = claude_search.unavailable(api, model)
-    if problem:
-        print(f"Claude search is off ({problem}). Recipes come from a plain web search instead.", file=sys.stderr)
-
+    """Gemini answers whatever the user says or types. A keyless web search finds the recipe pages;
+    Gemini reads the ones that carry no structured recipe."""
     def start(device):
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = (log_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-{id(device):x}.jsonl").open("a")
@@ -51,9 +45,10 @@ def gemini(log_dir: Path) -> Callable:
             log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
             log_file.flush()
 
-        find = duckduckgo() if problem else claude_search.ClaudeSearch(api, model, log)
+        model = Gemini(log=log)
+        recipes = WebRecipes(duckduckgo(), read=GeminiReader(model))
         # Nothing on the display until the user calls the assistant.
-        return Session(device, WebRecipes(find), saved=SavedRecipes(), asleep=True), GeminiBrain(Gemini(log=log))
+        return Session(device, recipes, saved=SavedRecipes(), asleep=True), GeminiBrain(model)
     return start
 
 

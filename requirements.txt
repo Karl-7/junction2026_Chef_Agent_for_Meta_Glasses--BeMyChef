@@ -1,7 +1,6 @@
 mcp==1.26.0
 pytest
 websockets
-anthropic
 fastapi
 uvicorn
 python-dotenv

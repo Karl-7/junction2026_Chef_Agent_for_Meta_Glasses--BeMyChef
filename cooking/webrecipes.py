@@ -1,12 +1,12 @@
 """Recipe candidates from the web: a finder names recipe pages, code reads each page.
 
-Finders: `ClaudeSearch` (cooking.claude_search), which also reports what it read on each page,
-and `duckduckgo` here, which needs no key and returns urls only.
+The finder is `duckduckgo` here, which needs no key and returns urls.
 
 Most recipe sites embed a schema.org Recipe (JSON-LD) with the name, picture, ingredient list and
 steps; where a page has one, its ingredients and steps are used exactly as published. Where it
-does not, the finder's reading of the page is used, with the page's share picture. A page becomes
-a candidate only with a picture, an ingredient list and steps: the glasses show the first two.
+does not, a reader (`cooking.page_reader.GeminiReader`) reads them from the page's text, and the
+page's share picture is used. A page becomes a candidate only with a picture, an ingredient list
+and steps: the glasses show the first two.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ QUERY = {"en": "{dish} recipe", "zh": "{dish} 做法"}
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 PAGES_PER_SEARCH = 8
 PAGE_TIMEOUT_S = 8
+READ_TIMEOUT_S = 8          # more time for the search when pages are read by a model
 MAX_RECIPE_CHARS = 20000
 SUMMARY_CHARS = 240
 
@@ -100,8 +101,10 @@ def structured_recipe(page: str) -> dict | None:
 class WebRecipes:
     """Implements `cooking.device.RecipeSource`."""
 
-    def __init__(self, find: Callable[[str, list[str]], list[dict]], get: Callable[[str], str] = http_get):
-        self._find, self._get = find, get
+    def __init__(self, find: Callable[[str, list[str]], list[dict]], get: Callable[[str], str] = http_get,
+                 read: Callable[[str], dict | None] | None = None):
+        """`read(page)` -> {title, ingredients, steps} of the recipe on a page, for pages without structured data."""
+        self._find, self._get, self._read = find, get, read
         self._found: dict[str, dict] = {}     # recipe_id -> candidate + "text" (what load_recipe returns)
         self._tried: set[str] = set()         # canonical urls already fetched, usable or not
 
@@ -110,19 +113,15 @@ class WebRecipes:
         fresh = [lead for lead in leads if canonical_url(lead["url"]) not in self._tried][:PAGES_PER_SEARCH]
         self._tried |= {canonical_url(lead["url"]) for lead in fresh}
         pool = ThreadPoolExecutor(max_workers=PAGES_PER_SEARCH)
-        jobs = [pool.submit(self._page, lead["url"]) for lead in fresh]
-        wait(jobs, timeout=PAGE_TIMEOUT_S)       # one slow site must not hold up the others
+        jobs = [pool.submit(self._recipe, lead["url"]) for lead in fresh]
+        # One slow site must not hold up the others.
+        wait(jobs, timeout=PAGE_TIMEOUT_S + (READ_TIMEOUT_S if self._read else 0))
         pool.shutdown(wait=False, cancel_futures=True)
         found = []
         for lead, job in zip(fresh, jobs):
-            page = (job.result() if job.done() else None) or ""
-            recipe = structured_recipe(page) or {}
-            title = recipe.get("title") or lead.get("title") or ""
-            image = recipe.get("image") or share_picture(page)
-            # The page's own data wins; the finder's reading fills in for pages without it.
+            recipe = job.result() if job.done() else {}
+            title, image = recipe.get("title"), recipe.get("image")
             ingredients, steps = recipe.get("ingredients"), recipe.get("steps")
-            if not (ingredients and steps):
-                ingredients, steps = lead.get("ingredients") or [], lead.get("steps") or []
             if not (title and image and ingredients and steps):
                 continue
             summary = " ".join(steps)
@@ -139,8 +138,17 @@ class WebRecipes:
     def fetch(self, recipe_id: str) -> str:
         return self._found[recipe_id]["text"]
 
-    def _page(self, url: str) -> str | None:
+    def _recipe(self, url: str) -> dict:
+        """{title, image, ingredients, steps} of a page, as far as it gives them."""
         try:
-            return self._get(url)
+            page = self._get(url)
         except (urllib.error.URLError, TimeoutError, ValueError, OSError):
-            return None
+            return {}
+        recipe = structured_recipe(page) or {}
+        recipe["image"] = recipe.get("image") or share_picture(page)
+        # The page's own data wins; the reader fills in for pages without it. No picture, no candidate:
+        # such a page is not worth a model call.
+        if self._read and recipe["image"] and not (recipe.get("ingredients") and recipe.get("steps")):
+            reading = self._read(page) or {}
+            recipe = {**reading, "title": recipe.get("title") or reading.get("title"), "image": recipe["image"]}
+        return recipe

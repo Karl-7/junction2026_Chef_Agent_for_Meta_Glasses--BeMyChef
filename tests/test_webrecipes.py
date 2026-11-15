@@ -111,15 +111,16 @@ def test_a_site_that_never_answers_does_not_hold_up_the_search(monkeypatch):
 OG_PAGE = '<html><head><meta content="https://f.example/dish.jpg" property="og:image"></head><body>做法见下</body></html>'
 
 
-def test_a_page_without_structured_data_uses_the_finders_reading_and_the_share_picture():
+def test_a_page_without_structured_data_is_read_by_the_reader_and_uses_the_share_picture():
     pages = {"https://f.example/mapo": OG_PAGE, "https://a.example/stir-fry": PAGES["https://a.example/stir-fry"],
              "https://g.example/no-picture": "<html><body>plain</body></html>"}
-    read = {"title": "麻婆豆腐", "ingredients": ["豆腐 400克", "牛肉末 100克"], "steps": ["豆腐切块焯水。", "炒香豆瓣酱。"]}
-    find = lambda dish, skip: [{"url": "https://f.example/mapo", **read},
-                               {"url": "https://a.example/stir-fry", "title": "Wrong", "ingredients": ["wrong"], "steps": ["wrong"]},
-                               {"url": "https://g.example/no-picture", **read}]
-    recipes = WebRecipes(find, pages.__getitem__)
+    reading = {"title": "麻婆豆腐", "ingredients": ["豆腐 400克", "牛肉末 100克"], "steps": ["豆腐切块焯水。", "炒香豆瓣酱。"]}
+    read_pages = []
+    read = lambda page: read_pages.append(page) or reading
+    find = lambda dish, skip: [{"url": url} for url in pages]
+    recipes = WebRecipes(find, pages.__getitem__, read)
     mapo, stir_fry = recipes.search("麻婆豆腐", [])
+    assert read_pages == [OG_PAGE]      # not the page with its own recipe data, not the one without a picture
     assert mapo == {"recipe_id": "w1", "url": "https://f.example/mapo", "title": "麻婆豆腐",
                     "image": "https://f.example/dish.jpg", "ingredients": ["豆腐 400克", "牛肉末 100克"],
                     "steps": "豆腐切块焯水。 炒香豆瓣酱。", "instructions": ["豆腐切块焯水。", "炒香豆瓣酱。"]}

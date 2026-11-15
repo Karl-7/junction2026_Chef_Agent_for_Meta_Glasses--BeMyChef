@@ -27,7 +27,7 @@ WAKE_WORD = "gemini"
 HIGHLIGHT_TTL_S = 5.0
 SEARCH_ACK = {"en": "Let me search.", "zh": "我搜一下。"}
 LAST_STEP = {"en": "That's the last step.", "zh": "这是最后一步了。"}
-OPENING = {"en": "What do you want to cook? Or are there any ingredients you want to use?",
+OPENING = {"en": "Any thing in your mind?",
            "zh": "你想做什么菜？或者有什么想用掉的食材吗？"}
 # Whole utterances, after the wake word, that only start the assistant. Anything longer already says
 # what to cook and goes to the brain.
