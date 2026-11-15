@@ -55,6 +55,7 @@ button, input { font: inherit; color: inherit; }
 #wake { position: absolute; inset: 0; margin: 0; padding: var(--pad) var(--pad) 96px; display: flex; flex-direction: column;
   justify-content: center; gap: 10px; font-size: 20px; line-height: 1.4; color: var(--dim); mix-blend-mode: screen;
   animation: enter var(--enter) both; }
+#tap { color: var(--ink); }
 #wake small { margin-top: 18px; max-width: 44ch; font-size: 15px; line-height: 1.45; }
 #wake b { font-size: 32px; line-height: 1.2; font-weight: 500; letter-spacing: -0.02em; color: var(--ink); }
 
@@ -163,7 +164,7 @@ button, input { font: inherit; color: inherit; }
 <div id="layout">
   <figure id="stage">
     <video id="room" autoplay muted playsinline></video>
-    <p id="wake"><span>Say</span><b>“Gemini, I want to cook”</b><span>to start!</span>
+    <p id="wake"><span id="tap" hidden>Tap the screen to turn on the microphone, then</span><span>Say</span><b>“Gemini, I want to cook”</b><span>to start!</span>
       <small>(Try to show a POV cooking video from YouTube to the camera, for a more immersive tryout of the demo! Sorry we can't actually get you a pair of Meta glasses right now...)</small></p>
     <main id="hud">
       <div class="top"><div class="meta" id="meta"></div><span id="status">Connecting</span></div>
@@ -460,23 +461,27 @@ function capture(frame_id) {
 }
 
 // The glasses camera is not available to web apps; on a computer the webcam stands in for it.
-// A phone shows one permission question at a time, and a second one replaces the first. So the microphone
-// is not asked for until the camera picture is really showing: in Chrome on an iPhone the microphone
-// question came up while the camera's was still unanswered. A tap on the page also counts, if no picture ever comes.
+// A phone shows one permission question at a time, and a second one replaces the first: in Chrome on an
+// iPhone the microphone's came up the moment the camera's did. So on a touch screen the microphone is not
+// asked for until the user taps the page, which cannot happen while the camera question is up.
+// On a computer it waits until the camera picture shows (or a click, if none ever comes).
 let cameraSettled = false;
+function cameraIsSettled() { cameraSettled = true; $('tap').hidden = true; syncMic(); }
 async function startCamera() {
+  const tapped = new Promise(done => addEventListener('pointerdown', done, { once: true }));
+  $('tap').hidden = !touchScreen || !recognition;
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
     const facing = video.srcObject.getVideoTracks()[0]?.getSettings().facingMode;   // a computer's webcam names none
     video.classList.toggle('mirrored', facing !== 'environment');
     video.classList.add('live');
-    const showing = new Promise(done => video.videoWidth ? done() : video.addEventListener('playing', done, { once: true }));
-    const tapped = new Promise(done => addEventListener('pointerdown', done, { once: true }));
-    await Promise.race([showing, tapped]);
-    await new Promise(done => setTimeout(done, 800));   // the camera question is still sliding away
+    if (!touchScreen) {
+      const showing = new Promise(done => video.videoWidth ? done() : video.addEventListener('playing', done, { once: true }));
+      await Promise.race([showing, tapped]);
+    }
   } catch { /* no camera: frames go out empty and the preview stays dark */ }
-  cameraSettled = true;
-  syncMic();
+  if (touchScreen) await tapped;
+  cameraIsSettled();
 }
 
 // Open microphone, as on the real product: everything heard is sent, and the assistant decides whether
