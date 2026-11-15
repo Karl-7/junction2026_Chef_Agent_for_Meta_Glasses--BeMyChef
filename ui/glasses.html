@@ -460,21 +460,19 @@ function capture(frame_id) {
 }
 
 // The glasses camera is not available to web apps; on a computer the webcam stands in for it.
-// Camera and microphone are asked for together, so a phone shows one permission question instead of two
-// on top of each other. The microphone track is closed at once: only the permission is wanted, speech
-// recognition opens the microphone itself. The microphone still waits until the question is answered.
+// A phone shows one permission question at a time, so they are asked in turn: the camera, then the
+// microphone, and only then speech recognition (which on an iPhone has a question of its own). The camera
+// is asked alone: asked together with the microphone, Chrome on an iPhone gave no camera at all.
+// The microphone stream is closed at once: only the permission is wanted, recognition opens its own.
 let cameraSettled = false;
 async function startCamera() {
-  const camera = { facingMode: 'environment', width: { ideal: 1280 } };
-  let stream = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: camera, audio: true });
-    stream.getAudioTracks().forEach(track => { track.stop(); stream.removeTrack(track); });
-  } catch {
-    try { stream = await navigator.mediaDevices.getUserMedia({ video: camera }); }   // no microphone, or it was refused
-    catch { /* no camera: frames go out empty and the preview stays dark */ }
-  }
-  if (stream) { video.srcObject = stream; video.classList.add('live'); }
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
+    video.classList.add('live');
+  } catch { /* no camera: frames go out empty and the preview stays dark */ }
+  try {
+    (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(track => track.stop());
+  } catch { /* no microphone, or refused: recognition reports it */ }
   cameraSettled = true;
   syncMic();
 }
