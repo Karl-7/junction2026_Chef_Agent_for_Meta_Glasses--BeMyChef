@@ -441,9 +441,30 @@ function voice(text) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = /[一-鿿]/.test(text) ? 'zh-CN' : 'en-US';
   // The microphone stays closed while the assistant talks, so it does not hear itself.
-  u.onend = u.onerror = () => { state.speaking = speechSynthesis.speaking || speechSynthesis.pending; syncMic(); };
+  u.onend = u.onerror = () => { utterances.delete(u); speechMayBeOver(); };
+  utterances.add(u);
   state.speaking = true;
   speechSynthesis.speak(u);
+  watchSpeech();
+}
+
+// A phone does not always say when it has finished talking, or that it never started (an iPhone speaks
+// only after the page has been tapped), and the microphone would stay closed for good. So the end of
+// speech is also watched for: nothing being spoken for a moment means it is over.
+const utterances = new Set();      // kept from the garbage collector, which would take their `onend` with them
+let speechWatch = null;
+function speechMayBeOver() {
+  state.speaking = speechSynthesis.speaking || speechSynthesis.pending;
+  if (!state.speaking) { clearInterval(speechWatch); speechWatch = null; utterances.clear(); }
+  syncMic();
+}
+function watchSpeech() {
+  if (speechWatch) return;
+  let started = false, quiet = 0;
+  speechWatch = setInterval(() => {
+    if (speechSynthesis.speaking || speechSynthesis.pending) { started = true; quiet = 0; }
+    else if (++quiet >= (started ? 2 : 6)) speechMayBeOver();   // not started within 2 s: it never will
+  }, 300);
 }
 
 function capture(frame_id) {
@@ -462,12 +483,13 @@ function capture(frame_id) {
 // The glasses camera is not available to web apps; on a computer the webcam stands in for it.
 // A phone shows one permission question at a time, and a second one replaces the first: in Chrome on an
 // iPhone the microphone's came up the moment the camera's did. So on a touch screen the microphone is not
-// asked for until the user taps the page, which cannot happen while the camera question is up.
+// asked for until the user taps the page, which cannot happen while the camera question is up. The tap
+// also lets an iPhone speak, and on a phone that can, fills the screen with the page.
 // On a computer it waits until the camera picture shows (or a click, if none ever comes).
 let cameraSettled = false;
 function cameraIsSettled() { cameraSettled = true; $('tap').hidden = true; syncMic(); }
 async function startCamera() {
-  const tapped = new Promise(done => addEventListener('pointerdown', done, { once: true }));
+  const tapped = new Promise(done => addEventListener('click', done, { once: true }));
   $('tap').hidden = !touchScreen || !recognition;
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
@@ -545,6 +567,17 @@ document.addEventListener('keydown', e => {
     controls[(controls.indexOf(active) + step + controls.length) % controls.length].focus();
   }
 });
+
+// A tap is what a phone needs before it lets the page speak or fill the screen.
+addEventListener('click', () => {
+  if (touchScreen && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+});
+addEventListener('click', () => {
+  if (!('speechSynthesis' in window) || speechSynthesis.speaking || speechSynthesis.pending) return;
+  const silent = new SpeechSynthesisUtterance(' ');
+  silent.volume = 0;
+  speechSynthesis.speak(silent);
+}, { once: true });
 
 addEventListener('resize', () => fitView?.());   // a phone turned on its side has a different amount of room
 syncHistory();               // a reload starts a new session, on the idle screen
