@@ -59,3 +59,30 @@ def test_the_recipe_is_saved_for_the_glasses(bot, monkeypatch):
 
 def test_headings_become_bold_and_text_is_escaped(bot):
     assert bot.to_html("*Fish & chips*\n- 2 * 3 <big> potatoes") == "<b>Fish &amp; chips</b>\n- 2 * 3 &lt;big&gt; potatoes"
+
+
+def test_telegram_posts_its_updates_to_the_server(bot, monkeypatch):
+    from starlette.testclient import TestClient
+    from scripts.serve_glasses import create_app
+    handled = []
+    monkeypatch.setattr(bot.executor, "submit", lambda work, *args: handled.append((work.__name__, *args)))
+    client = TestClient(create_app(lambda device: None, bot=bot))
+    link = {"message": {"chat": {"id": 7}, "text": "look https://www.tiktok.com/@a/video/1"}}
+    secret = {"X-Telegram-Bot-Api-Secret-Token": bot.webhook_secret()}
+
+    assert client.post("/telegram", json=link).status_code == 403            # not from Telegram
+    assert handled == []
+    assert client.post("/telegram", json=link, headers=secret).status_code == 200
+    assert client.post("/telegram", json={"message": {"chat": {"id": 7}, "text": "hi"}}, headers=secret).status_code == 200
+    assert handled == [("handle_tiktok_message", 7, "https://www.tiktok.com/@a/video/1"),
+                       ("send_telegram_text", 7, bot.WELCOME)]
+
+
+def test_the_public_address_is_fly_s_unless_one_is_given(bot, monkeypatch):
+    monkeypatch.delenv("PUBLIC_URL", raising=False)
+    monkeypatch.delenv("FLY_APP_NAME", raising=False)
+    assert bot.public_url() is None                                          # a laptop: the bot polls
+    monkeypatch.setenv("FLY_APP_NAME", "bemychef")
+    assert bot.public_url() == "https://bemychef.fly.dev"
+    monkeypatch.setenv("PUBLIC_URL", "https://cook.example/")
+    assert bot.public_url() == "https://cook.example"

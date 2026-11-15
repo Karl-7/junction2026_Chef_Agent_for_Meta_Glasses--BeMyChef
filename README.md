@@ -100,7 +100,7 @@ export GEMINI_API_KEY=...     # required
 
 Open <http://localhost:8765> in Chrome and allow the camera and microphone. In a wide window the page shows the display over your webcam, as in the picture above. On the glasses, open the same address as a web app. It has to be reachable from the glasses, for example through ngrok.
 
-For the Telegram bot, set `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY`, install `ffmpeg`, and run `.venv/bin/python Telegram_bot.py`.
+For the Telegram bot, set `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY`, install `ffmpeg`, and run `.venv/bin/python Telegram_bot.py`. Deployed (on Fly.io, or anywhere with `PUBLIC_URL` set to the server's address), the server registers a Telegram webhook when it starts and answers the messages itself, so it can stop while idle.
 
 ## How we test it
 

@@ -1,3 +1,4 @@
+import hashlib
 import html
 import os
 import re
@@ -243,11 +244,57 @@ def handle_tiktok_message(chat_id: int, tiktok_url: str) -> None:
                 print(f"[SEND ERROR] {send_err}", flush=True)
 
 
+# --- 收消息：webhook（部署时）或长轮询（本地） ---
+executor = ThreadPoolExecutor(max_workers=4)
+
+
+def handle_update(update: dict) -> None:
+    """Answer one Telegram update in the background: a TikTok link gets its recipe, anything else the welcome."""
+    msg = update.get("message") or update.get("edited_message")
+    if not msg:
+        return
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text") or msg.get("caption") or ""
+    print(f"[TG MSG] chat_id={chat_id} text={repr(text)}", flush=True)
+
+    match = TIKTOK_URL_REGEX.search(text)
+    if match:
+        executor.submit(handle_tiktok_message, chat_id, match.group(0))
+    else:
+        executor.submit(send_telegram_text, chat_id, WELCOME)
+
+
+def public_url() -> Optional[str]:
+    """Where Telegram can reach this server: PUBLIC_URL, or the app's address on Fly.io. None on a laptop."""
+    url = os.getenv("PUBLIC_URL") or (f"https://{os.environ['FLY_APP_NAME']}.fly.dev" if os.getenv("FLY_APP_NAME") else None)
+    return url.rstrip("/") if url else None
+
+
+def webhook_secret() -> str:
+    """Telegram sends this back in a header with every update, so nobody else can post updates to the server."""
+    return hashlib.sha256(TELEGRAM_BOT_TOKEN.encode()).hexdigest()
+
+
+def register_webhook(base_url: str) -> None:
+    """Have Telegram post updates to `base_url`/telegram. The server need not be running in between:
+    the post itself wakes it."""
+    resp = httpx.post(
+        f"{TG_API_BASE}/setWebhook",
+        json={"url": f"{base_url}/telegram", "secret_token": webhook_secret(),
+              "allowed_updates": ["message", "edited_message"]},
+        timeout=30.0,
+    )
+    if resp.status_code >= 400 or not resp.json().get("ok"):
+        raise RuntimeError(f"Telegram setWebhook error {resp.status_code}: {resp.text}")
+    print(f"[TG] webhook: {base_url}/telegram", flush=True)
+
+
 # --- 主循环（长轮询，无需 ngrok） ---
 def main() -> None:
+    # Telegram refuses getUpdates while a webhook is set. A deployed server sets it again when it next starts.
+    httpx.post(f"{TG_API_BASE}/deleteWebhook", timeout=30.0)
     print("Cooking assistant Telegram bot 已启动，正在监听消息...", flush=True)
     offset = 0
-    executor = ThreadPoolExecutor(max_workers=4)
 
     while True:
         try:
@@ -264,19 +311,7 @@ def main() -> None:
 
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
-                msg = update.get("message") or update.get("edited_message")
-                if not msg:
-                    continue
-
-                chat_id = msg["chat"]["id"]
-                text = msg.get("text") or msg.get("caption") or ""
-                print(f"[TG MSG] chat_id={chat_id} text={repr(text)}", flush=True)
-
-                match = TIKTOK_URL_REGEX.search(text)
-                if match:
-                    executor.submit(handle_tiktok_message, chat_id, match.group(0))
-                else:
-                    executor.submit(send_telegram_text, chat_id, WELCOME)
+                handle_update(update)
 
         except KeyboardInterrupt:
             print("\nBot stopped.", flush=True)
