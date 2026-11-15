@@ -47,7 +47,6 @@ button, input { font: inherit; color: inherit; }
 #stage { position: fixed; inset: 0; margin: 0; }
 #room { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; visibility: hidden;
   filter: brightness(0.5) saturate(0.85); }   /* the lenses are tinted */
-#room.mirrored { transform: scaleX(-1); }   /* a camera facing the user shows like a mirror; a phone's back camera shows as it sees */
 #room.live { visibility: visible; }   /* only with a camera: an empty video draws a play button on the glasses */
 #hud { position: absolute; inset: 0; padding: var(--pad) var(--pad) 96px; display: flex; flex-direction: column;
   mix-blend-mode: screen; }
@@ -472,8 +471,6 @@ async function startCamera() {
   $('tap').hidden = !touchScreen || !recognition;
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
-    const facing = video.srcObject.getVideoTracks()[0]?.getSettings().facingMode;   // a computer's webcam names none
-    video.classList.toggle('mirrored', facing !== 'environment');
     video.classList.add('live');
     if (!touchScreen) {
       const showing = new Promise(done => video.videoWidth ? done() : video.addEventListener('playing', done, { once: true }));
