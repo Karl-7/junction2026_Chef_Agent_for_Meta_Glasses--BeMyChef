@@ -460,14 +460,21 @@ function capture(frame_id) {
 }
 
 // The glasses camera is not available to web apps; on a computer the webcam stands in for it.
-// The microphone waits for the camera question to be answered: a phone shows one permission question at
-// a time, and the microphone starting would replace the camera's before it could be answered.
+// Camera and microphone are asked for together, so a phone shows one permission question instead of two
+// on top of each other. The microphone track is closed at once: only the permission is wanted, speech
+// recognition opens the microphone itself. The microphone still waits until the question is answered.
 let cameraSettled = false;
 async function startCamera() {
+  const camera = { facingMode: 'environment', width: { ideal: 1280 } };
+  let stream = null;
   try {
-    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
-    video.classList.add('live');
-  } catch { /* no camera: frames go out empty and the preview stays dark */ }
+    stream = await navigator.mediaDevices.getUserMedia({ video: camera, audio: true });
+    stream.getAudioTracks().forEach(track => { track.stop(); stream.removeTrack(track); });
+  } catch {
+    try { stream = await navigator.mediaDevices.getUserMedia({ video: camera }); }   // no microphone, or it was refused
+    catch { /* no camera: frames go out empty and the preview stays dark */ }
+  }
+  if (stream) { video.srcObject = stream; video.classList.add('live'); }
   cameraSettled = true;
   syncMic();
 }
