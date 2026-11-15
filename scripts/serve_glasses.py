@@ -63,6 +63,9 @@ def create_app(start: Callable, bot=None) -> Starlette:
     async def icon(_):
         return FileResponse(ROOT / "ui" / "icon.png", headers={"Cache-Control": "max-age=86400"})
 
+    async def manifest(_):                       # for a phone's "Add to Home Screen"
+        return FileResponse(ROOT / "ui" / "manifest.webmanifest", media_type="application/manifest+json")
+
     async def saved_photo(request):
         path = SavedRecipes().photo(request.path_params["name"])
         return FileResponse(path, headers={"Cache-Control": "max-age=86400"}) if path else Response(status_code=404)
@@ -88,7 +91,7 @@ def create_app(start: Callable, bot=None) -> Starlette:
         bot.handle_update(await request.json())      # answered in the background: Telegram resends what is slow
         return Response(status_code=200)
 
-    routes = [Route("/", page), Route("/icon.png", icon), Route("/saved/{name}", saved_photo),
+    routes = [Route("/", page), Route("/icon.png", icon), Route("/manifest.webmanifest", manifest), Route("/saved/{name}", saved_photo),
               WebSocketRoute("/ws", socket)]
     if bot:
         routes.append(Route("/telegram", telegram, methods=["POST"]))

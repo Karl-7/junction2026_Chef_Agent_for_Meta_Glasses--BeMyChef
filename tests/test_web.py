@@ -78,6 +78,7 @@ def test_page_is_served(scenario):
     client = TestClient(create_app(scripted(scenario)))
     assert "Cooking Assistant" in client.get("/").text
     assert client.get("/icon.png").content.startswith(b"\x89PNG")
+    assert client.get("/manifest.webmanifest").json()["display"] == "fullscreen"
 
 
 def test_whole_session_through_the_page(page):
